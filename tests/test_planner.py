@@ -222,3 +222,25 @@ async def test_learns_sessions_from_climate(
     assert len(controller.data.sessions) == 1
     assert controller.data.sessions[0].rate == 2.0
     assert hass.states.get(entity_id(hass, "sensor", entry, "sessions_learned")).state == "1"
+
+
+async def test_plans_immediately_once_missing_readings_arrive(
+    hass: HomeAssistant, climate_calls: ClimateCalls
+):
+    set_climate(hass)
+    set_temps(hass, water=None, outside=None)
+    entry = await setup_entry(hass, make_entry(seed_rate=2.0))
+    controller = entry.runtime_data
+    await controller.async_set_ready_by(dt_util.utcnow() + timedelta(hours=10))
+    assert controller.plan is None
+
+    # The first change starts the debouncer's cooldown while the water is still missing.
+    hass.states.async_set("sensor.outside", "5")
+    await hass.async_block_till_done()
+    assert controller.plan is None
+
+    # The reading that completes the inputs plans straight away, inside the cooldown.
+    hass.states.async_set("sensor.hot_tub_water", "30")
+    await hass.async_block_till_done()
+    assert controller.plan is not None
+    assert controller.data.phase == "scheduled"
