@@ -57,7 +57,7 @@ There are two schedules, and they can be used together:
 
 Whichever ready-by comes next is planned first. After its hold period the heater is turned off, unless the next run would need it back on within 5 minutes, in which case it keeps going. If you set a one-off time that's earlier than a daily run that is already heating, that run serves the one-off instead. Turning a schedule off stops managing its run but leaves the heater as it is.
 
-Ready By plans by the clock, not by electricity price. If your current timer automation follows a cheap overnight rate, a daily ready-by may start heating outside that window.
+To turn the heater off at the daily ready-by time instead of keeping it on for the hold period, turn on **Turn off at daily ready-by**. Set the daily time to when your cheap rate ends and the water is hot by then, with the heater off afterwards. One-off runs still use the hold period. Ready By plans by the clock, not by electricity price. If your current timer automation follows a cheap overnight rate, a daily ready-by may start heating outside that window.
 
 ## Entities
 
@@ -65,6 +65,7 @@ Ready By plans by the clock, not by electricity price. If your current timer aut
 | --- | --- |
 | `time` Daily ready by | When the water should be hot every day. Setting it turns the daily schedule on. |
 | `switch` Daily schedule | Turns the daily schedule on or off. |
+| `switch` Turn off at daily ready-by | When on, the daily run turns the heater off at the ready-by time instead of holding, for example when a cheap electricity rate ends. |
 | `datetime` One-off ready by | A single time the water should be hot by. Setting it turns the one-off schedule on. |
 | `switch` One-off schedule | Turns the one-off schedule on or off. It turns itself off after its run. |
 | `number` Target temperature | The temperature to reach, shared by both schedules. |
@@ -94,7 +95,7 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 ## Actions and events
 
 - `ready_by.set_ready_by`: `config_entry_id`, `ready_by`, optional `target`. Sets the one-off time and turns the one-off schedule on.
-- `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled` and `target`. Sets the daily time (which turns it on unless `enabled: false`), or turns the daily schedule on or off.
+- `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled` and `target`. Sets the daily time (which turns it on unless `enabled: false`), turns the daily schedule on or off, or sets `off_at_ready_by`.
 - `ready_by.import_sessions`: `config_entry_id`, `sessions`, `cooling`. Adds past sessions; returns how many were new.
 - `ready_by.reset_model`: forgets everything learned.
 

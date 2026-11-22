@@ -36,6 +36,7 @@ class ReadyByData:
     sources_key: str | None = None
     daily_enabled: bool = False
     daily_time: time | None = None
+    daily_off_at_ready_by: bool = False
     active: str | None = None
     active_ready_by: datetime | None = None
 
@@ -65,6 +66,7 @@ class ReadyByData:
             "sources_key": self.sources_key,
             "daily_enabled": self.daily_enabled,
             "daily_time": self.daily_time.isoformat() if self.daily_time else None,
+            "daily_off_at_ready_by": self.daily_off_at_ready_by,
             "active": self.active,
             "active_ready_by": self.active_ready_by.isoformat() if self.active_ready_by else None,
         }
@@ -85,6 +87,7 @@ class ReadyByData:
             sources_key=raw.get("sources_key"),
             daily_enabled=bool(raw.get("daily_enabled", False)),
             daily_time=dt_util.parse_time(raw["daily_time"]) if raw.get("daily_time") else None,
+            daily_off_at_ready_by=bool(raw.get("daily_off_at_ready_by", False)),
             active=raw.get("active"),
             active_ready_by=(
                 dt_util.parse_datetime(raw["active_ready_by"])

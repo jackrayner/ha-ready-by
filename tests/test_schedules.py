@@ -249,3 +249,49 @@ async def test_daily_time_follows_local_clock_change(hass: HomeAssistant, london
     assert controller._daily_at(before, time(7, 0)) == datetime.fromisoformat(
         "2027-03-28T06:00:00+00:00"
     )
+
+
+async def test_daily_off_at_ready_by(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller = await _setup(hass)
+    await hass.services.async_call(
+        DOMAIN,
+        "set_daily",
+        {"config_entry_id": entry.entry_id, "time": "19:00", "off_at_ready_by": True},
+        blocking=True,
+    )
+    assert hass.states.get(entity_id(hass, "switch", entry, "daily_off_at_ready_by")).state == "on"
+
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    await _fire(hass, freezer, local(19) + timedelta(seconds=1))
+
+    assert climate_calls.modes == ["heat", "off"]
+    assert controller.data.phase == PHASE_SCHEDULED
+    assert controller.data.active_ready_by == local(19, days=1)
+
+
+async def test_off_at_ready_by_does_not_apply_to_one_off(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    _, controller = await _setup(hass)
+    await controller.async_set_daily_off_at_ready_by(True)
+    await controller.async_set_ready_by(local(19))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    await _fire(hass, freezer, local(19) + timedelta(seconds=1))
+    assert controller.data.phase == PHASE_HOLDING
+    assert climate_calls.modes == ["heat"]
+
+
+async def test_turning_on_off_at_ready_by_during_daily_hold_ends_it(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    _, controller = await _setup(hass)
+    await controller.async_set_daily_time(time(19, 0))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    await _fire(hass, freezer, local(19) + timedelta(seconds=1))
+    assert controller.data.phase == PHASE_HOLDING
+
+    await controller.async_set_daily_off_at_ready_by(True)
+    assert climate_calls.modes == ["heat", "off"]
+    assert controller.data.active_ready_by == local(19, days=1)
