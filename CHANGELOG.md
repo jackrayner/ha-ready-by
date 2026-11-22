@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/jackrayner/ha-ready-by/compare/0.4.0...0.5.0) (2026-11-22)
+
+
+### Features
+
+* keep a year of learning with an input archive ([5c27a04](https://github.com/jackrayner/ha-ready-by/commit/5c27a046b7c9a8036b028565adf64bd93ac06d20))
+* keep a year of learning with an input archive ([a30b218](https://github.com/jackrayner/ha-ready-by/commit/a30b218bc4b31d334e4732687022a99fa197e60c))
+
 ## [0.4.0](https://github.com/jackrayner/ha-ready-by/compare/0.3.0...0.4.0) (2026-11-22)
 
 
