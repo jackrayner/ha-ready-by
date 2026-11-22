@@ -148,7 +148,7 @@ def test_power_in_kilowatts_is_converted():
 
 
 def test_heat_pump_night_with_defrost_and_modulation():
-    """Shape of a real night: 1.4 kW with a short defrost dip, then modulating at setpoint."""
+    """A typical inverter heat pump run: a short defrost dip, then modulating at setpoint."""
     m = timedelta(minutes=1)
     kw = {"unit_of_measurement": "kW"}
     sources = Sources(CLIMATE, OUTSIDE, WATER, power_id=POWER, power_threshold=100)
