@@ -10,7 +10,7 @@ import bisect
 import math
 import statistics
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -29,19 +29,27 @@ OUTLIER_MADS = 3.0
 SIM_STEP = timedelta(minutes=5)
 MAX_HEAT_DURATION = timedelta(hours=72)
 PLAN_RESOLUTION = timedelta(minutes=1)
+MODE_MIN_SESSIONS = 3
+MIN_MODE_FACTOR = 0.25
+MAX_MODE_FACTOR = 2.0
 
 OutsideTemp = Callable[[datetime], float]
 
 
 @dataclass(frozen=True)
 class Session:
-    """One completed heating run."""
+    """One completed heating run.
+
+    mode is the heater's preset mode for the whole run (e.g. "boost"), or None
+    when it's unknown or changed during the run.
+    """
 
     start: datetime
     end: datetime
     water_start: float
     water_end: float
     outside_avg: float
+    mode: str | None = None
 
     @property
     def hours(self) -> float:
@@ -68,6 +76,7 @@ class Session:
             "water_start": self.water_start,
             "water_end": self.water_end,
             "outside_avg": self.outside_avg,
+            "mode": self.mode,
         }
 
     @classmethod
@@ -78,6 +87,7 @@ class Session:
             water_start=float(data["water_start"]),
             water_end=float(data["water_end"]),
             outside_avg=float(data["outside_avg"]),
+            mode=data.get("mode") or None,
         )
 
 
@@ -187,6 +197,16 @@ class SessionDetector:
         self._outside_avg: _TimeAverage | None = None
         self._pending_stop: tuple[datetime, float | None] | None = None
         self._peak: tuple[datetime, float] | None = None
+        self.mode: str | None = None
+        self._phase_mode: str | None = None
+        self._phase_mode_mixed = False
+
+    def update_mode(self, when: datetime, value: str | None) -> list[Sample]:
+        done = self.flush(when)
+        if value != self.mode and self._phase_start is not None:
+            self._phase_mode_mixed = True
+        self.mode = value
+        return done
 
     def update_water(self, when: datetime, value: float | None) -> list[Sample]:
         done = self.flush(when)
@@ -240,6 +260,8 @@ class SessionDetector:
         self._phase_water = self.water if water is None else water
         self._outside_avg = _TimeAverage(when, self.outside)
         self._peak = None
+        self._phase_mode = self.mode
+        self._phase_mode_mixed = False
 
     def _finish_phase(
         self, when: datetime, *, was_heating: bool, water_end: float | None = None
@@ -252,14 +274,18 @@ class SessionDetector:
         outside_avg = self._outside_avg.average(when) if self._outside_avg else None
         if outside_avg is None:
             return []
-        cls = Session if was_heating else CoolingSample
-        sample = cls(
-            start=self._phase_start,
-            end=when,
-            water_start=self._phase_water,
-            water_end=water_end,
-            outside_avg=outside_avg,
-        )
+        common = {
+            "start": self._phase_start,
+            "end": when,
+            "water_start": self._phase_water,
+            "water_end": water_end,
+            "outside_avg": outside_avg,
+        }
+        if was_heating:
+            mode = None if self._phase_mode_mixed else self._phase_mode
+            sample: Sample = Session(**common, mode=mode)
+        else:
+            sample = CoolingSample(**common)
         return [sample] if sample.is_valid() else []
 
 
@@ -268,8 +294,8 @@ def detect(
 ) -> tuple[list[Session], list[CoolingSample]]:
     """Run time-ordered (when, kind, value) events through a SessionDetector.
 
-    kind is "heating" (bool), "water" (float or None) or "outside" (float or None).
-    A heating stop still held at the end of the events is treated as final.
+    kind is "heating" (bool), "water" (float or None), "outside" (float or None)
+    or "mode" (str or None). A heating stop still held at the end of the events is treated as final.
     """
     detector = SessionDetector()
     done: list[Sample] = []
@@ -282,6 +308,8 @@ def detect(
             done.extend(detector.update_outside(when, value))
         elif kind == "heating":
             done.extend(detector.update_heating(when, bool(value)))
+        elif kind == "mode":
+            done.extend(detector.update_mode(when, value))
     if last is not None:
         done.extend(detector.flush(last + STOP_MERGE_GAP * 2))
     sessions = [s for s in done if isinstance(s, Session)]
@@ -291,7 +319,11 @@ def detect(
 
 @dataclass(frozen=True)
 class HeatingModel:
-    """Predicted heating rate (°C/h): c0 + c1 * outside + c2 * water, clamped."""
+    """Predicted heating rate (°C/h): (c0 + c1 * outside + c2 * water) * mode factor, clamped.
+
+    mode_factors holds a learned multiplier for each heater mode with enough
+    sessions; any other mode, or no mode, uses 1.
+    """
 
     kind: str
     c0: float
@@ -300,9 +332,13 @@ class HeatingModel:
     n: int = 0
     r2: float | None = None
     max_rate: float | None = None
+    mode_factors: dict[str, float] = field(default_factory=dict)
 
-    def rate(self, outside: float, water: float) -> float:
-        raw = self.c0 + self.c1 * outside + self.c2 * water
+    def factor(self, mode: str | None) -> float:
+        return self.mode_factors.get(mode, 1.0) if mode else 1.0
+
+    def rate(self, outside: float, water: float, mode: str | None = None) -> float:
+        raw = (self.c0 + self.c1 * outside + self.c2 * water) * self.factor(mode)
         upper = self.max_rate * MAX_RATE_HEADROOM if self.max_rate else None
         if upper is not None:
             raw = min(raw, upper)
@@ -317,6 +353,7 @@ class HeatingModel:
             "n": self.n,
             "r2": self.r2,
             "max_rate": self.max_rate,
+            "mode_factors": dict(self.mode_factors),
         }
 
 
@@ -331,12 +368,44 @@ def fit_heating(sessions: Iterable[Session], seed_rate: float) -> HeatingModel:
     if len(valid) < SIMPLE_FIT_MIN_SESSIONS:
         return HeatingModel(kind="seed", c0=seed_rate, n=len(valid))
 
-    kept = _reject_outliers(valid)
+    base = _fit_base(valid)
+    factors = _mode_factors(valid, base)
+    if factors:
+        # Refit on rates normalised to a factor of 1, so a mix of modes doesn't skew it.
+        base = _fit_base([_normalised(s, factors.get(s.mode, 1.0)) for s in valid])
+        factors = _mode_factors(valid, base)
+    return replace(base, mode_factors=factors)
+
+
+def _fit_base(sessions: list[Session]) -> HeatingModel:
+    kept = _reject_outliers(sessions)
     if len(kept) >= FULL_FIT_MIN_SESSIONS:
         full = _fit_full(kept)
         if full is not None:
             return full
     return _fit_simple(kept)
+
+
+def _mode_factors(sessions: list[Session], base: HeatingModel) -> dict[str, float]:
+    """Median of actual / predicted rate for each mode with enough sessions.
+
+    Uses every valid session, not just those kept by outlier rejection: while one
+    mode dominates, another mode's sessions look like outliers to the base fit.
+    """
+    ratios: dict[str, list[float]] = {}
+    for s in sessions:
+        if s.mode:
+            ratios.setdefault(s.mode, []).append(s.rate / base.rate(s.outside_avg, s.water_mid))
+    return {
+        mode: min(max(statistics.median(values), MIN_MODE_FACTOR), MAX_MODE_FACTOR)
+        for mode, values in ratios.items()
+        if len(values) >= MODE_MIN_SESSIONS
+    }
+
+
+def _normalised(session: Session, factor: float) -> Session:
+    """The same session as if it had heated at a mode factor of 1."""
+    return replace(session, end=session.start + (session.end - session.start) * factor)
 
 
 def _fit_simple(sessions: list[Session]) -> HeatingModel:
@@ -466,6 +535,7 @@ def simulate_heating(
     outside_at: OutsideTemp,
     model: HeatingModel,
     limit: timedelta = MAX_HEAT_DURATION,
+    mode: str | None = None,
 ) -> datetime | None:
     """When the water reaches target heating from start, or None if not within limit."""
     if water >= target:
@@ -474,7 +544,7 @@ def simulate_heating(
     end = start + limit
     while when < end:
         hours = SIM_STEP.total_seconds() / 3600
-        rate = model.rate(outside_at(when + SIM_STEP / 2), water)
+        rate = model.rate(outside_at(when + SIM_STEP / 2), water, mode)
         gain = rate * hours
         if water + gain >= target:
             return when + SIM_STEP * ((target - water) / gain)
@@ -515,6 +585,7 @@ def plan_heating(
     outside_at: OutsideTemp,
     model: HeatingModel,
     cooling_k: float,
+    mode: str | None = None,
 ) -> Plan:
     """Find the latest start that still reaches target by deadline.
 
@@ -524,7 +595,8 @@ def plan_heating(
 
     def finish(start: datetime) -> tuple[datetime | None, float]:
         water_at_start = simulate_cooling(now, start, water, outside_at, cooling_k)
-        return simulate_heating(start, water_at_start, target, outside_at, model), water_at_start
+        ready = simulate_heating(start, water_at_start, target, outside_at, model, mode=mode)
+        return ready, water_at_start
 
     ready_now, water_now = finish(now)
     if deadline <= now or ready_now is None or ready_now > deadline:

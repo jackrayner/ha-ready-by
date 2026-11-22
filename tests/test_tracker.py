@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant, State
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.ready_by.model import detect
+from custom_components.ready_by.model import HeatingModel, detect
 from custom_components.ready_by.tracker import Sources, climate_is_heating, events_from_history
 
 T0 = datetime(2026, 11, 1, 12, tzinfo=UTC)
@@ -171,3 +171,41 @@ def test_heat_pump_night_with_defrost_and_modulation():
     s = sessions[0]
     assert (s.start, s.end) == (T0 + 30 * m, T0 + 220 * m)
     assert s.rate == pytest.approx(4 / (190 / 60))
+
+
+def test_climate_preset_mode_is_tracked():
+    h = timedelta(hours=1)
+    sources = Sources(CLIMATE, OUTSIDE, WATER)
+    states = [
+        _state(OUTSIDE, "4", T0),
+        _state(WATER, "30", T0),
+        _state(CLIMATE, "heat", T0, {"hvac_action": "idle", "preset_mode": "sleep"}),
+        _state(CLIMATE, "heat", T0 + h, {"hvac_action": "heating", "preset_mode": "sleep"}),
+        _state(WATER, "33", T0 + 3 * h),
+        _state(CLIMATE, "heat", T0 + 3 * h, {"hvac_action": "idle", "preset_mode": "sleep"}),
+    ]
+    sessions, _ = detect(events_from_history(states, sources))
+    assert sessions[0].mode == "sleep"
+
+
+async def test_controller_plans_with_current_mode(hass: HomeAssistant):
+    set_climate(hass)
+    set_temps(hass, water=30, outside=5)
+    entry = await setup_entry(hass, make_entry(seed_rate=2.0))
+    controller = entry.runtime_data
+    controller.model = HeatingModel(kind="seed", c0=2.0, mode_factors={"sleep": 0.5})
+    assert controller.heating_rate == 2.0
+
+    hass.states.async_set(
+        CLIMATE,
+        "heat",
+        {
+            "hvac_action": "idle",
+            "current_temperature": 30,
+            "temperature": 38,
+            "preset_mode": "sleep",
+        },
+    )
+    await hass.async_block_till_done()
+    assert controller.tracker.mode == "sleep"
+    assert controller.heating_rate == 1.0

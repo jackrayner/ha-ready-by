@@ -10,6 +10,7 @@ from typing import Any
 from homeassistant.components.climate import (
     ATTR_CURRENT_TEMPERATURE,
     ATTR_HVAC_ACTION,
+    ATTR_PRESET_MODE,
     HVACAction,
     HVACMode,
 )
@@ -107,6 +108,8 @@ class Sources:
         when = state.last_updated
         events: list[tuple[datetime, str, Any]] = []
         if state.entity_id == self.climate_id:
+            if state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                events.append((when, "mode", state.attributes.get(ATTR_PRESET_MODE)))
             if self.water_id is None:
                 events.append((when, "water", climate_water(state)))
             if self.power_id is None:
@@ -160,6 +163,11 @@ class SessionTracker:
         return self._detector.outside
 
     @property
+    def mode(self) -> str | None:
+        """The heater's current preset mode, if it has one."""
+        return self._detector.mode
+
+    @property
     def heating(self) -> bool | None:
         return self._detector.heating
 
@@ -203,6 +211,8 @@ class SessionTracker:
                 done = self._detector.update_water(event_time, value)
             elif kind == "outside":
                 done = self._detector.update_outside(event_time, value)
+            elif kind == "mode":
+                done = self._detector.update_mode(event_time, value)
             else:
                 done = self._detector.update_heating(event_time, value)
             self._report(done)

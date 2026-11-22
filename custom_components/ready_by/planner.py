@@ -156,7 +156,7 @@ class ReadyByController:
         water, outside = self.tracker.water, self.tracker.outside
         if water is None or outside is None:
             return None
-        return self.model.rate(outside, water)
+        return self.model.rate(outside, water, self.tracker.mode)
 
     async def async_setup(self) -> None:
         self.data = await self._store.async_load()
@@ -170,11 +170,7 @@ class ReadyByController:
             await self.async_refresh_forecast(replan=False)
         self._resume()
         await self.async_replan()
-        if (
-            self.entry.options.get(CONF_IMPORT_HISTORY, DEFAULT_IMPORT_HISTORY)
-            and not self.data.history_imported
-            and "recorder" in self.hass.config.components
-        ):
+        if self._should_import_history():
             self.entry.async_create_background_task(
                 self.hass, self._async_import_history(), "ready_by history import"
             )
@@ -274,11 +270,15 @@ class ReadyByController:
         return added
 
     async def async_reset_model(self) -> None:
+        """Forget everything learned, then relearn from recorder history if enabled."""
         self.data.sessions = []
         self.data.cooling = []
+        self.data.history_imported = False
         self._refit()
         self._store.async_schedule_save()
         await self.async_replan()
+        if self._should_import_history():
+            await self._async_import_history()
 
     async def _async_import_history(self) -> None:
         try:
@@ -303,6 +303,13 @@ class ReadyByController:
     @callback
     def _on_inputs_changed(self) -> None:
         self._debouncer.async_schedule_call()
+
+    def _should_import_history(self) -> bool:
+        return (
+            self.entry.options.get(CONF_IMPORT_HISTORY, DEFAULT_IMPORT_HISTORY)
+            and not self.data.history_imported
+            and "recorder" in self.hass.config.components
+        )
 
     def _check_sources(self) -> None:
         """Forget data learned from different entities, so it can be relearned."""
@@ -408,6 +415,7 @@ class ReadyByController:
             outside_at,
             self.model,
             self.cooling_k,
+            mode=self.tracker.mode,
         )
 
     async def async_replan(self) -> None:
@@ -468,7 +476,9 @@ class ReadyByController:
         ready_by = self.data.active_ready_by
         if water is None or outside_at is None or ready_by is None:
             return None
-        ready = simulate_heating(now, water, self.data.target, outside_at, self.model)
+        ready = simulate_heating(
+            now, water, self.data.target, outside_at, self.model, mode=self.tracker.mode
+        )
         return Plan(
             start=self.data.started_at or now,
             expected_ready=ready,
@@ -615,6 +625,7 @@ class ReadyByController:
             "water": self.tracker.water,
             "outside": self.tracker.outside,
             "heating": self.tracker.heating,
+            "mode": self.tracker.mode,
         }
 
 
