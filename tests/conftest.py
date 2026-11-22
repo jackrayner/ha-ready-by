@@ -32,6 +32,12 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir: str) -> str:
+    """Give each test its own config directory, since Ready By writes an input archive there."""
+    return hass_tmp_config_dir
+
+
 def set_climate(
     hass: HomeAssistant,
     mode: str = "off",
@@ -115,7 +121,7 @@ def make_entry(
 async def setup_entry(hass: HomeAssistant, entry: MockConfigEntry) -> MockConfigEntry:
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     return entry
 
 

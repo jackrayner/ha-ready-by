@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -25,7 +26,11 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+from .archive import InputArchive, Row, events_from_rows
 from .const import (
+    ARCHIVE_FLUSH_INTERVAL,
+    ARCHIVE_SAMPLE_INTERVAL,
+    CONF_ARCHIVE_MB,
     CONF_BUFFER_MINUTES,
     CONF_CLIMATE,
     CONF_HOLD_HOURS,
@@ -36,12 +41,14 @@ from .const import (
     CONF_SEED_RATE,
     CONF_WATER,
     CONF_WEATHER,
+    DEFAULT_ARCHIVE_MB,
     DEFAULT_BUFFER_MINUTES,
     DEFAULT_HOLD_HOURS,
     DEFAULT_IMPORT_HISTORY,
     DEFAULT_NAME,
     DEFAULT_POWER_THRESHOLD,
     DEFAULT_SEED_RATE,
+    DOMAIN,
     EVENT_HEATING_STARTED,
     EVENT_LATE,
     EVENT_READY,
@@ -62,6 +69,7 @@ from .model import (
     OutsideTemp,
     Plan,
     Session,
+    detect,
     fit_cooling,
     fit_heating,
     outside_temp_function,
@@ -69,7 +77,7 @@ from .model import (
     simulate_heating,
 )
 from .store import ReadyByData, ReadyByStore
-from .tracker import SessionTracker, Sources
+from .tracker import SessionTracker, Sources, power_watts
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,6 +100,12 @@ class ReadyByController:
         self._ready_unsub: CALLBACK_TYPE | None = None
         self._end_unsub: CALLBACK_TYPE | None = None
         self._forecast_unsub: CALLBACK_TYPE | None = None
+        self._archive_unsubs: list[CALLBACK_TYPE] = []
+        self._archive_buffer: list[Row] = []
+        self.archive = InputArchive(
+            Path(hass.config.path(".storage", DOMAIN, entry.entry_id)),
+            int(entry.options.get(CONF_ARCHIVE_MB, DEFAULT_ARCHIVE_MB)) * 1024 * 1024,
+        )
         self.tracker = SessionTracker(
             hass,
             self.sources,
@@ -178,6 +192,12 @@ class ReadyByController:
         self._check_sources()
         self._refit()
         self.tracker.async_start()
+        self._archive_unsubs = [
+            async_track_time_interval(
+                self.hass, self._async_archive_sample, ARCHIVE_SAMPLE_INTERVAL
+            ),
+            async_track_time_interval(self.hass, self._async_archive_flush, ARCHIVE_FLUSH_INTERVAL),
+        ]
         if self.weather_id:
             self._forecast_unsub = async_track_time_interval(
                 self.hass, self._async_forecast_interval, FORECAST_INTERVAL
@@ -185,9 +205,9 @@ class ReadyByController:
             await self.async_refresh_forecast(replan=False)
         self._resume()
         await self.async_replan()
-        if self._should_import_history():
+        if not self.data.history_imported:
             self.entry.async_create_background_task(
-                self.hass, self._async_import_history(), "ready_by history import"
+                self.hass, self._async_relearn(), "ready_by relearn"
             )
 
     async def async_shutdown(self) -> None:
@@ -196,6 +216,10 @@ class ReadyByController:
             self._forecast_unsub()
             self._forecast_unsub = None
         self.tracker.async_stop()
+        for unsub in self._archive_unsubs:
+            unsub()
+        self._archive_unsubs = []
+        await self._async_archive_flush()
         self._debouncer.async_shutdown()
         await self._store.async_save()
 
@@ -348,25 +372,100 @@ class ReadyByController:
         return added
 
     async def async_reset_model(self) -> None:
-        """Forget everything learned, then relearn from recorder history if enabled."""
+        """Forget everything learned, then relearn from the input archive and recorder."""
         self.data.sessions = []
         self.data.cooling = []
         self.data.history_imported = False
         self._refit()
         self._store.async_schedule_save()
         await self.async_replan()
-        if self._should_import_history():
-            await self._async_import_history()
+        await self._async_relearn()
 
-    async def _async_import_history(self) -> None:
+    @property
+    def _archive_sources(self) -> dict[str, str | None]:
+        """The entities archived rows are recorded from; rows from others aren't reused."""
+        sources = self.sources
+        return {
+            "climate": sources.climate_id,
+            "water": sources.water_id,
+            "outside": sources.outside_id,
+            "power": sources.power_id,
+        }
+
+    async def _async_relearn(self) -> None:
+        """Learn from the input archive, and from the recorder for the time before it."""
+        await self._async_archive_flush()
+        sources = self.sources
         try:
-            sessions, cooling = await async_load_history(self.hass, self.sources)
-        except Exception:  # noqa: BLE001 - a failed import must not break the integration
-            _LOGGER.warning("Could not import recorder history for %s", self.name, exc_info=True)
-            return
-        self.data.history_imported = True
+            rows = await self.hass.async_add_executor_job(self.archive.read, self._archive_sources)
+            events = events_from_rows(
+                rows,
+                power_threshold=sources.power_threshold,
+                use_power=sources.power_id is not None,
+            )
+            sessions, cooling = await self.hass.async_add_executor_job(detect, events)
+        except Exception:  # noqa: BLE001 - a damaged archive must not break the integration
+            _LOGGER.warning("Could not relearn %s from its input archive", self.name, exc_info=True)
+            rows, sessions, cooling = [], [], []
+        archive_start = rows[0].when if rows else None
+
+        recorder_failed = False
+        if self._should_import_history():
+            try:
+                old_sessions, old_cooling = await async_load_history(
+                    self.hass, sources, end=archive_start
+                )
+            except Exception:  # noqa: BLE001 - a failed import must not break the integration
+                recorder_failed = True
+                _LOGGER.warning(
+                    "Could not import recorder history for %s", self.name, exc_info=True
+                )
+            else:
+                if archive_start is not None:
+                    old_sessions = [s for s in old_sessions if s.end <= archive_start]
+                    old_cooling = [c for c in old_cooling if c.end <= archive_start]
+                sessions = old_sessions + sessions
+                cooling = old_cooling + cooling
+
+        # Try the recorder again at the next setup if it failed this time.
+        self.data.history_imported = not recorder_failed
         added = await self.async_import(sessions, cooling)
-        _LOGGER.info("Imported %d heating sessions and %d cooling samples from history", *added)
+        _LOGGER.info(
+            "Relearned %d heating sessions and %d cooling samples for %s (archive from %s)",
+            *added,
+            self.name,
+            archive_start,
+        )
+
+    @callback
+    def _async_archive_sample(self, now: datetime) -> None:
+        power_id = self.sources.power_id
+        self._archive_buffer.append(
+            Row(
+                when=now,
+                water=self.tracker.water,
+                outside=self.tracker.outside,
+                power=power_watts(self.hass.states.get(power_id)) if power_id else None,
+                heating=self.tracker.heating,
+                mode=self.tracker.mode,
+            )
+        )
+
+    async def _async_archive_flush(self, _now: datetime | None = None) -> None:
+        rows, self._archive_buffer = self._archive_buffer, []
+        if not rows:
+            return
+        try:
+            await self.hass.async_add_executor_job(self.archive.append, self._archive_sources, rows)
+        except OSError:
+            _LOGGER.warning("Could not write the input archive for %s", self.name, exc_info=True)
+
+    def export(self) -> dict[str, Any]:
+        """Learned sessions and cooling samples, in the format import_sessions takes."""
+        return {
+            "sessions": [s.as_dict() for s in self.data.sessions],
+            "cooling": [c.as_dict() for c in self.data.cooling],
+        }
 
     @callback
     def _on_sample(self, sample: Session | CoolingSample) -> None:
@@ -383,9 +482,8 @@ class ReadyByController:
         self._debouncer.async_schedule_call()
 
     def _should_import_history(self) -> bool:
-        return (
+        return bool(
             self.entry.options.get(CONF_IMPORT_HISTORY, DEFAULT_IMPORT_HISTORY)
-            and not self.data.history_imported
             and "recorder" in self.hass.config.components
         )
 

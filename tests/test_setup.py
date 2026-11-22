@@ -52,7 +52,7 @@ async def test_state_survives_reload(hass: HomeAssistant, climate_calls: Climate
     await controller.async_set_ready_by(ready_by, target=37)
 
     assert await hass.config_entries.async_reload(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     controller = entry.runtime_data
     assert len(controller.data.sessions) == 1
     assert controller.data.ready_by == ready_by
@@ -68,7 +68,7 @@ async def test_heating_resumes_after_reload(hass: HomeAssistant, climate_calls: 
     assert entry.runtime_data.data.phase == PHASE_HEATING
 
     assert await hass.config_entries.async_reload(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     controller = entry.runtime_data
     assert controller.data.phase == PHASE_HEATING
     assert controller._ready_unsub is not None
@@ -125,13 +125,14 @@ async def test_changing_sources_relearns(hass: HomeAssistant):
     hass.config_entries.async_update_entry(
         entry, data={**entry.data, CONF_POWER: "sensor.heat_pump_power"}
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     controller = entry.runtime_data
+    # Discarded, then relearned (from an empty archive, with recorder import off).
     assert controller.data.sessions == []
-    assert controller.data.history_imported is False
+    assert controller.data.history_imported is True
 
     # Reloading with the same sources keeps what has been learned since.
     await controller.async_import([Session(start, start + timedelta(hours=2), 30, 34, 5)], [])
     assert await hass.config_entries.async_reload(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(entry.runtime_data.data.sessions) == 1

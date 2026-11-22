@@ -12,6 +12,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_ARCHIVE_MB,
     CONF_BUFFER_MINUTES,
     CONF_CLIMATE,
     CONF_IMPORT_HISTORY,
@@ -21,6 +22,7 @@ from .const import (
     CONF_SEED_RATE,
     CONF_WATER,
     CONF_WEATHER,
+    DEFAULT_ARCHIVE_MB,
     DEFAULT_BUFFER_MINUTES,
     DEFAULT_IMPORT_HISTORY,
     DEFAULT_NAME,
@@ -36,6 +38,7 @@ DEFAULT_OPTIONS = {
     CONF_BUFFER_MINUTES: DEFAULT_BUFFER_MINUTES,
     CONF_SEED_RATE: DEFAULT_SEED_RATE,
     CONF_IMPORT_HISTORY: DEFAULT_IMPORT_HISTORY,
+    CONF_ARCHIVE_MB: DEFAULT_ARCHIVE_MB,
 }
 
 
@@ -99,6 +102,9 @@ def _settings_schema(options: dict[str, Any]) -> dict[vol.Marker, Any]:
         vol.Required(
             CONF_IMPORT_HISTORY, default=default(CONF_IMPORT_HISTORY)
         ): selector.BooleanSelector(),
+        vol.Required(CONF_ARCHIVE_MB, default=default(CONF_ARCHIVE_MB)): _number(
+            10, 2000, 10, "MB"
+        ),
     }
 
 

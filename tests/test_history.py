@@ -27,7 +27,7 @@ async def test_history_imported_once_when_recorder_loaded(hass: HomeAssistant):
         "custom_components.ready_by.planner.async_load_history", return_value=loaded
     ) as load:
         assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert load.call_count == 1
         controller = entry.runtime_data
         assert len(controller.data.sessions) == 1
@@ -35,7 +35,7 @@ async def test_history_imported_once_when_recorder_loaded(hass: HomeAssistant):
         assert controller.data.history_imported
 
         assert await hass.config_entries.async_reload(entry.entry_id)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert load.call_count == 1
 
 
@@ -52,7 +52,7 @@ async def test_history_failure_is_logged(hass: HomeAssistant, caplog):
         "custom_components.ready_by.planner.async_load_history", side_effect=RuntimeError("db")
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
     assert "Could not import recorder history" in caplog.text
     assert not entry.runtime_data.data.history_imported
 
@@ -72,7 +72,7 @@ async def test_reset_model_relearns_from_history(hass: HomeAssistant):
         "custom_components.ready_by.planner.async_load_history", return_value=loaded
     ) as load:
         assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         controller = entry.runtime_data
         controller.data.sessions.append(Session(start, start + timedelta(hours=1), 30, 32, 5))
         await controller.async_reset_model()
