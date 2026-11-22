@@ -48,6 +48,13 @@ set_daily:
           max: 45
           step: 0.5
           unit_of_measurement: "°C"
+end_session:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ready_by
 import_sessions:
   fields:
     config_entry_id:

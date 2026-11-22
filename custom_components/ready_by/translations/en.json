@@ -35,7 +35,6 @@
           "power_threshold": "Heating power threshold",
           "buffer_minutes": "Safety buffer",
           "seed_rate": "Starting heating rate",
-          "hold_hours": "Keep heating after the ready-by time",
           "import_history": "Learn from recorder history on first setup"
         },
         "data_description": {
@@ -44,8 +43,7 @@
           "power_sensor": "Optional. When set, the heater counts as heating while this reads above the power threshold, instead of using the climate entity. More accurate for heat pumps that don't report hvac_action.",
           "power_threshold": "Power above which the heater counts as heating.",
           "buffer_minutes": "Aim to reach the target this long before the ready-by time.",
-          "seed_rate": "Used until at least 3 heating sessions have been learned.",
-          "hold_hours": "After this, the heater is turned off. 0 leaves it on."
+          "seed_rate": "Used until at least 3 heating sessions have been learned."
         },
         "description": "Changing the heater, the water, outside or power sensor, or the power threshold discards learned sessions and relearns them from recorder history."
       }
@@ -68,6 +66,9 @@
     "number": {
       "target_temperature": {
         "name": "Target temperature"
+      },
+      "session_length": {
+        "name": "Session length"
       }
     },
     "switch": {
@@ -129,6 +130,11 @@
       "daily_ready_by": {
         "name": "Daily ready by"
       }
+    },
+    "button": {
+      "end_session": {
+        "name": "End session"
+      }
     }
   },
   "exceptions": {
@@ -178,6 +184,16 @@
         "target": {
           "name": "Target",
           "description": "Target temperature, shared with the one-off schedule."
+        }
+      }
+    },
+    "end_session": {
+      "name": "End session",
+      "description": "Turns the heater off now, ending any run in progress before its scheduled end. A one-off schedule turns off; the daily schedule moves to its next day.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry whose session to end."
         }
       }
     },

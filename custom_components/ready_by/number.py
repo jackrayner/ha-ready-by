@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -17,7 +17,13 @@ async def async_setup_entry(
     entry: ReadyByConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    async_add_entities([TargetTemperatureNumber(entry.runtime_data, "target_temperature")])
+    controller = entry.runtime_data
+    async_add_entities(
+        [
+            TargetTemperatureNumber(controller, "target_temperature"),
+            SessionLengthNumber(controller, "session_length"),
+        ]
+    )
 
 
 class TargetTemperatureNumber(ReadyByEntity, NumberEntity):
@@ -34,3 +40,21 @@ class TargetTemperatureNumber(ReadyByEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         await self.controller.async_set_target(value)
+
+
+class SessionLengthNumber(ReadyByEntity, NumberEntity):
+    """How long to keep heating after the ready-by time. 0 never turns the heater off."""
+
+    _attr_device_class = NumberDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_native_min_value = 0
+    _attr_native_max_value = 24
+    _attr_native_step = 0.25
+    _attr_mode = NumberMode.BOX
+
+    @property
+    def native_value(self) -> float:
+        return self.controller.session_hours
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self.controller.async_set_session_length(value)

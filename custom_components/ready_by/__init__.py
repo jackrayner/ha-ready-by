@@ -23,6 +23,7 @@ from .const import (
     DOMAIN,
     MAX_TARGET,
     MIN_TARGET,
+    SERVICE_END_SESSION,
     SERVICE_IMPORT_SESSIONS,
     SERVICE_RESET_MODEL,
     SERVICE_SET_DAILY,
@@ -33,6 +34,7 @@ from .planner import ReadyByConfigEntry, ReadyByController
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
     Platform.DATETIME,
     Platform.NUMBER,
     Platform.SENSOR,
@@ -128,6 +130,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         elif ATTR_TIME not in call.data:
             await controller.async_replan()
 
+    async def end_session(call: ServiceCall) -> None:
+        await controller_for(call).async_end_session()
+
     async def reset_model(call: ServiceCall) -> None:
         await controller_for(call).async_reset_model()
 
@@ -140,6 +145,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(DOMAIN, SERVICE_SET_DAILY, set_daily, SET_DAILY_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_END_SESSION, end_session, RESET_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_RESET_MODEL, reset_model, RESET_SCHEMA)
     return True
 

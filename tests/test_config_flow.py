@@ -7,7 +7,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.ready_by.const import (
     CONF_BUFFER_MINUTES,
     CONF_CLIMATE,
-    CONF_HOLD_HOURS,
     CONF_IMPORT_HISTORY,
     CONF_OUTSIDE,
     CONF_POWER,
@@ -22,7 +21,6 @@ SETTINGS = {
     CONF_POWER_THRESHOLD: 100,
     CONF_BUFFER_MINUTES: 15,
     CONF_SEED_RATE: 1.0,
-    CONF_HOLD_HOURS: 2,
     CONF_IMPORT_HISTORY: False,
 }
 

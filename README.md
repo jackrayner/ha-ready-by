@@ -20,7 +20,7 @@ It learns from every heating run how fast the heater warms the water at differen
 
 - **Learning.** Each time the climate entity heats for at least 30 minutes and raises the water by at least 1 °C, the run is stored as a session. The heating rate is fitted as `rate = c0 + c1 × outside + c2 × water` (least squares, with outliers such as a lid left off thrown out). With fewer than 8 sessions it uses a simpler one-variable fit on `outside − water`, and with fewer than 3 it uses a starting rate you set. Idle periods of 2 hours or more give a Newton's-law cooling coefficient.
 - **Planning.** It simulates the water in 5-minute steps: cooling from now until a candidate start time, then heating, using the outside sensor now and the hourly forecast after that. A binary search finds the latest start that still reaches the target by the ready-by time (minus an optional safety buffer). It plans again when the temperatures, forecast, target or ready-by time change.
-- **Control.** At the start time it sets the climate entity to `heat` at the target temperature. After the ready-by time it keeps heating for a hold period you choose, then turns the climate entity off. If there isn't enough time, it starts immediately and marks the plan as late.
+- **Control.** At the start time it sets the climate entity to `heat` at the target temperature. After the ready-by time it keeps heating for the session length you choose, then turns the climate entity off. An **End session** button turns it off early. If there isn't enough time, it starts immediately and marks the plan as late.
 
 Heating is detected from the climate entity's `hvac_action`. If the entity doesn't report one, it's treated as heating whenever it's in a heating mode and below its setpoint. That guess is rough, so if the heater has a power sensor, set it in the options: the heater then counts as heating while its power is above a threshold. Stops shorter than 10 minutes, such as a heat pump's defrost cycle, don't split a session. A session ends when the water first reaches its highest temperature, so time spent holding the setpoint doesn't drag the learned rate down. Power readings in kW (or mW/MW) are converted to watts.
 
@@ -55,9 +55,9 @@ There are two schedules, and they can be used together:
 - **Daily**: a time of day the water should be hot by, every day. Use it in place of a timer automation that switches the heater on and off.
 - **One-off**: a single date and time, for example for an evening in the tub. It turns itself off once that run is over.
 
-Whichever ready-by comes next is planned first. After its hold period the heater is turned off, unless the next run would need it back on within 5 minutes, in which case it keeps going. If you set a one-off time that's earlier than a daily run that is already heating, that run serves the one-off instead. Turning a schedule off stops managing its run but leaves the heater as it is.
+Whichever ready-by comes next is planned first. After its session length the heater is turned off, unless the next run would need it back on within 5 minutes, in which case it keeps going. If you set a one-off time that's earlier than a daily run that is already heating, that run serves the one-off instead. Turning a schedule off stops managing its run but leaves the heater as it is.
 
-To turn the heater off at the daily ready-by time instead of keeping it on for the hold period, turn on **Turn off at daily ready-by**. Set the daily time to when your cheap rate ends and the water is hot by then, with the heater off afterwards. One-off runs still use the hold period. Ready By plans by the clock, not by electricity price. If your current timer automation follows a cheap overnight rate, a daily ready-by may start heating outside that window.
+To turn the heater off at the daily ready-by time instead of keeping it on for the session length, turn on **Turn off at daily ready-by**. Set the daily time to when your cheap rate ends and the water is hot by then, with the heater off afterwards. One-off runs still use the session length. Ready By plans by the clock, not by electricity price. If your current timer automation follows a cheap overnight rate, a daily ready-by may start heating outside that window.
 
 ## Entities
 
@@ -66,6 +66,8 @@ To turn the heater off at the daily ready-by time instead of keeping it on for t
 | `time` Daily ready by | When the water should be hot every day. Setting it turns the daily schedule on. |
 | `switch` Daily schedule | Turns the daily schedule on or off. |
 | `switch` Turn off at daily ready-by | When on, the daily run turns the heater off at the ready-by time instead of holding, for example when a cheap electricity rate ends. |
+| `number` Session length | How long to keep heating after the ready-by time before turning the heater off (default 2 h). 0 never turns it off. Changing it during a session moves that session's end. |
+| `button` End session | Turns the heater off now and ends the run in progress, overriding its scheduled end. A one-off schedule turns off; the daily schedule moves to its next day. With nothing running, it just turns the heater off. |
 | `datetime` One-off ready by | A single time the water should be hot by. Setting it turns the one-off schedule on. |
 | `switch` One-off schedule | Turns the one-off schedule on or off. It turns itself off after its run. |
 | `number` Target temperature | The temperature to reach, shared by both schedules. |
@@ -89,7 +91,6 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 | Heating power threshold | 100 W | Power above which the heater counts as heating. |
 | Safety buffer | 15 min | Aim to be ready this long before the ready-by time. |
 | Starting heating rate | 1.0 °C/h | Used until 3 sessions have been learned. |
-| Keep heating after the ready-by time | 2 h | Then the heater is turned off. 0 leaves it on. |
 | Learn from recorder history on first setup | On | Imports past sessions once. |
 
 ## Actions and events
@@ -97,6 +98,7 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 - `ready_by.set_ready_by`: `config_entry_id`, `ready_by`, optional `target`. Sets the one-off time and turns the one-off schedule on.
 - `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled` and `target`. Sets the daily time (which turns it on unless `enabled: false`), turns the daily schedule on or off, or sets `off_at_ready_by`.
 - `ready_by.import_sessions`: `config_entry_id`, `sessions`, `cooling`. Adds past sessions; returns how many were new.
+- `ready_by.end_session`: `config_entry_id`. Same as the End session button.
 - `ready_by.reset_model`: forgets everything learned.
 
 Events, for your own notifications:
@@ -172,13 +174,14 @@ custom_components/ready_by/
 ├── history.py           # one-off recorder import on first setup
 ├── planner.py           # ReadyByController: settings, timers, forecast, climate calls
 ├── store.py             # persisted sessions, settings and schedule state
-├── config_flow.py       # entity selection, and options (buffer, seed rate, hold, history import)
+├── config_flow.py       # entity selection, and options (buffer, seed rate, history import)
 ├── entity.py            # shared device_info base entity
 ├── datetime.py          # ready-by time
-├── number.py            # target temperature
+├── number.py            # target temperature, session length
 ├── switch.py            # schedule on/off
 ├── sensor.py            # status, start/ready times, duration, rate, diagnostics
 ├── binary_sensor.py     # on time
+├── button.py            # end session
 ├── diagnostics.py
 ├── services.yaml        # set_ready_by, import_sessions, reset_model
 ├── brand/               # icon.png / icon@2x.png / logo.png
