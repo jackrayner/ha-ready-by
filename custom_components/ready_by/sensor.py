@@ -44,6 +44,11 @@ SENSORS: tuple[ReadyBySensorDescription, ...] = (
         value_fn=lambda c: c.data.phase,
     ),
     ReadyBySensorDescription(
+        key="next_ready_by",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda c: c.next_ready_by[1] if c.next_ready_by else None,
+    ),
+    ReadyBySensorDescription(
         key="start_time",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda c: c.plan.start if c.plan else None,
@@ -113,4 +118,7 @@ class ReadyBySensor(ReadyByEntity, SensorEntity):
     def extra_state_attributes(self) -> dict | None:
         if self.entity_description.key == "heating_rate":
             return self.controller.model.as_dict()
+        if self.entity_description.key == "next_ready_by":
+            upcoming = self.controller.next_ready_by
+            return {"schedule": upcoming[0] if upcoming else None}
         return None

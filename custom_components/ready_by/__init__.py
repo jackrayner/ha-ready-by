@@ -14,14 +14,17 @@ from homeassistant.util import dt as dt_util
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_COOLING,
+    ATTR_ENABLED,
     ATTR_READY_BY,
     ATTR_SESSIONS,
     ATTR_TARGET,
+    ATTR_TIME,
     DOMAIN,
     MAX_TARGET,
     MIN_TARGET,
     SERVICE_IMPORT_SESSIONS,
     SERVICE_RESET_MODEL,
+    SERVICE_SET_DAILY,
     SERVICE_SET_READY_BY,
 )
 from .model import CoolingSample, Session
@@ -33,6 +36,7 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.TIME,
 ]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -64,6 +68,16 @@ IMPORT_SCHEMA = vol.Schema(
     }
 )
 RESET_SCHEMA = vol.Schema({vol.Required(ATTR_CONFIG_ENTRY_ID): cv.string})
+SET_DAILY_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): cv.string,
+        vol.Optional(ATTR_TIME): cv.time,
+        vol.Optional(ATTR_ENABLED): cv.boolean,
+        vol.Optional(ATTR_TARGET): vol.All(
+            vol.Coerce(float), vol.Range(min=MIN_TARGET, max=MAX_TARGET)
+        ),
+    }
+)
 
 
 def _aware(sample: dict) -> dict:
@@ -97,6 +111,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         added_sessions, added_cooling = await controller_for(call).async_import(sessions, cooling)
         return {"sessions_added": added_sessions, "cooling_added": added_cooling}
 
+    async def set_daily(call: ServiceCall) -> None:
+        controller = controller_for(call)
+        if ATTR_TARGET in call.data:
+            await controller.async_set_target(call.data[ATTR_TARGET], replan=False)
+        if ATTR_TIME in call.data:
+            await controller.async_set_daily_time(
+                call.data[ATTR_TIME], enable=call.data.get(ATTR_ENABLED, True)
+            )
+        if ATTR_ENABLED in call.data:
+            await controller.async_set_daily_enabled(call.data[ATTR_ENABLED])
+        elif ATTR_TIME not in call.data:
+            await controller.async_replan()
+
     async def reset_model(call: ServiceCall) -> None:
         await controller_for(call).async_reset_model()
 
@@ -108,6 +135,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         IMPORT_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+    hass.services.async_register(DOMAIN, SERVICE_SET_DAILY, set_daily, SET_DAILY_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_RESET_MODEL, reset_model, RESET_SCHEMA)
     return True
 
