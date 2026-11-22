@@ -37,6 +37,7 @@ class ReadyByData:
     daily_enabled: bool = False
     daily_time: time | None = None
     daily_off_at_ready_by: bool = False
+    daily_target: float | None = None
     session_hours: float | None = None
     daily_done_until: datetime | None = None
     active: str | None = None
@@ -69,6 +70,7 @@ class ReadyByData:
             "daily_enabled": self.daily_enabled,
             "daily_time": self.daily_time.isoformat() if self.daily_time else None,
             "daily_off_at_ready_by": self.daily_off_at_ready_by,
+            "daily_target": self.daily_target,
             "session_hours": self.session_hours,
             "daily_done_until": self.daily_done_until.isoformat()
             if self.daily_done_until
@@ -94,6 +96,9 @@ class ReadyByData:
             daily_enabled=bool(raw.get("daily_enabled", False)),
             daily_time=dt_util.parse_time(raw["daily_time"]) if raw.get("daily_time") else None,
             daily_off_at_ready_by=bool(raw.get("daily_off_at_ready_by", False)),
+            daily_target=(
+                float(raw["daily_target"]) if raw.get("daily_target") is not None else None
+            ),
             daily_done_until=(
                 dt_util.parse_datetime(raw["daily_done_until"])
                 if raw.get("daily_done_until")

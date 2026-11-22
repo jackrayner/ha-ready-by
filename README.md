@@ -56,7 +56,7 @@ There are two schedules, and they can be used together:
 - **Daily**: a time of day the water should be hot by, every day. Use it in place of a timer automation that switches the heater on and off.
 - **One-off**: a single date and time, for example for an evening in the tub. It turns itself off once that run is over.
 
-Whichever ready-by comes next is planned first. After its session length the heater is turned off, unless the next run would need it back on within 5 minutes, in which case it keeps going. If you set a one-off time that's earlier than a daily run that is already heating, that run serves the one-off instead. Turning a schedule off stops managing its run but leaves the heater as it is.
+Each schedule has its own target temperature. Whichever ready-by comes next is planned first. After its session length the heater is turned off, unless the next run would need it back on within 5 minutes, in which case it keeps going. If you set a one-off time that's earlier than a daily run that is already heating, that run serves the one-off instead. Turning a schedule off stops managing its run but leaves the heater as it is.
 
 To turn the heater off at the daily ready-by time instead of keeping it on for the session length, turn on **Turn off at daily ready-by**. Set the daily time to when your cheap rate ends and the water is hot by then, with the heater off afterwards. One-off runs still use the session length. Ready By plans by the clock, not by electricity price. If your current timer automation follows a cheap overnight rate, a daily ready-by may start heating outside that window.
 
@@ -71,7 +71,8 @@ To turn the heater off at the daily ready-by time instead of keeping it on for t
 | `button` End session | Turns the heater off now and ends the run in progress, overriding its scheduled end. A one-off schedule turns off; the daily schedule moves to its next day. With nothing running, it just turns the heater off. |
 | `datetime` One-off ready by | A single time the water should be hot by. Setting it turns the one-off schedule on. |
 | `switch` One-off schedule | Turns the one-off schedule on or off. It turns itself off after its run. |
-| `number` Target temperature | The temperature to reach, shared by both schedules. |
+| `number` One-off target temperature | The temperature one-off runs heat to. |
+| `number` Daily target temperature | The temperature daily runs heat to, for example higher overnight to make the most of a cheap rate. It starts as a copy of the one-off target. |
 | `sensor` Status | `idle`, `scheduled`, `heating` or `holding`. |
 | `sensor` Next ready by | The ready-by time being worked towards; its `schedule` attribute says `daily` or `one_off`. |
 | `sensor` Start time | When heating will start (or started). |
@@ -96,8 +97,8 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 
 ## Actions and events
 
-- `ready_by.set_ready_by`: `config_entry_id`, `ready_by`, optional `target`. Sets the one-off time and turns the one-off schedule on.
-- `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled` and `target`. Sets the daily time (which turns it on unless `enabled: false`), turns the daily schedule on or off, or sets `off_at_ready_by`.
+- `ready_by.set_ready_by`: `config_entry_id`, `ready_by`, optional `target`. Sets the one-off time (and one-off target) and turns the one-off schedule on.
+- `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled`, `target` and `off_at_ready_by`. Sets the daily time (which turns it on unless `enabled: false`) or the daily target, turns the daily schedule on or off, or sets `off_at_ready_by`.
 - `ready_by.import_sessions`: `config_entry_id`, `sessions`, `cooling`. Adds past sessions; returns how many were new.
 - `ready_by.end_session`: `config_entry_id`. Same as the End session button.
 - `ready_by.reset_model`: forgets everything learned, then relearns from recorder history if history learning is on.
@@ -109,7 +110,7 @@ Events, for your own notifications:
 - `ready_by_ready`: the ready-by time was reached; includes `water_temperature`
 - `ready_by_session_ended`: a run ended; includes `reason` (`manual` for End session, otherwise `scheduled`) and `heater_off` (whether the heater was turned off)
 
-Each event carries `config_entry_id`, `name`, `schedule` (`daily` or `one_off`), `ready_by`, `target`, `expected_ready` and `on_time`.
+Each event carries `config_entry_id`, `name`, `schedule` (`daily` or `one_off`), `ready_by`, `target` (the target of that run's schedule), `expected_ready` and `on_time`.
 
 ```yaml
 automation:
@@ -179,7 +180,7 @@ custom_components/ready_by/
 ├── config_flow.py       # entity selection, and options (buffer, seed rate, history import)
 ├── entity.py            # shared device_info base entity
 ├── datetime.py          # ready-by time
-├── number.py            # target temperature, session length
+├── number.py            # one-off and daily targets, session length
 ├── switch.py            # schedule on/off
 ├── sensor.py            # status, start/ready times, duration, rate, diagnostics
 ├── binary_sensor.py     # on time

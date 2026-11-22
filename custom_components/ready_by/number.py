@@ -21,6 +21,7 @@ async def async_setup_entry(
     async_add_entities(
         [
             TargetTemperatureNumber(controller, "target_temperature"),
+            DailyTargetTemperatureNumber(controller, "daily_target_temperature"),
             SessionLengthNumber(controller, "session_length"),
         ]
     )
@@ -58,3 +59,14 @@ class SessionLengthNumber(ReadyByEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         await self.controller.async_set_session_length(value)
+
+
+class DailyTargetTemperatureNumber(TargetTemperatureNumber):
+    """The temperature a daily run heats to."""
+
+    @property
+    def native_value(self) -> float:
+        return self.controller.daily_target
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self.controller.async_set_daily_target(value)

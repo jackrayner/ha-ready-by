@@ -219,7 +219,8 @@ async def test_set_daily_action_and_entities(
     )
     assert controller.data.daily_time == time(6, 30)
     assert controller.data.daily_enabled
-    assert controller.data.target == 39
+    assert controller.data.daily_target == 39
+    assert controller.data.target == 38
     assert hass.states.get(entity_id(hass, "time", entry, "daily_ready_by")).state == "06:30:00"
     assert hass.states.get(entity_id(hass, "switch", entry, "daily_enabled")).state == "on"
 
@@ -398,3 +399,61 @@ async def test_end_session_while_preheating_and_when_idle(
         DOMAIN, "end_session", {"config_entry_id": entry.entry_id}, blocking=True
     )
     assert climate_calls.modes == ["heat", "off", "off"]
+
+
+async def test_daily_and_one_off_heat_to_their_own_targets(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller = await _setup(hass)
+    # Before it's set, the daily target starts as a copy of the shared one.
+    assert controller.daily_target == 38
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": entity_id(hass, "number", entry, "daily_target_temperature"), "value": 40},
+        blocking=True,
+    )
+    await controller.async_set_daily_time(time(19, 0))
+    await controller.async_set_ready_by(local(21, 0), target=37)
+
+    daily_plan = controller.plan
+    assert controller.data.active == SCHEDULE_DAILY
+    await _fire(hass, freezer, daily_plan.start + timedelta(seconds=1))
+    assert climate_calls.temperature[-1].data["temperature"] == 40
+
+    # A one-off target change doesn't touch a running daily run.
+    await controller.async_set_target(36)
+    assert climate_calls.temperature[-1].data["temperature"] == 40
+    # A daily target change does.
+    await controller.async_set_daily_target(39.5)
+    assert climate_calls.temperature[-1].data["temperature"] == 39.5
+
+    await _fire(hass, freezer, local(19) + timedelta(seconds=1))
+    await _fire(hass, freezer, local(20) + timedelta(seconds=1))
+    # The one-off at 21:00 follows straight on, at its own target.
+    assert controller.data.active == SCHEDULE_ONE_OFF
+    assert controller.data.phase == PHASE_HEATING
+    assert climate_calls.temperature[-1].data["temperature"] == 36
+    assert "off" not in climate_calls.modes
+
+
+async def test_daily_target_plans_longer_heating(hass: HomeAssistant, london):
+    _, controller = await _setup(hass)
+    await controller.async_set_daily_time(time(19, 0))
+    at_38 = controller.plan.start
+    await controller.async_set_daily_target(40)
+    assert controller.plan.start < at_38 - timedelta(minutes=50)
+
+
+async def test_one_off_taking_over_daily_switches_setpoint(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    _, controller = await _setup(hass)
+    await controller.async_set_daily_target(40)
+    await controller.async_set_daily_time(time(19, 0))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    assert climate_calls.temperature[-1].data["temperature"] == 40
+
+    await controller.async_set_ready_by(local(18, 0))
+    assert controller.data.active == SCHEDULE_ONE_OFF
+    assert climate_calls.temperature[-1].data["temperature"] == 38
