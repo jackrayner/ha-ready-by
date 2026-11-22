@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/jackrayner/ha-ready-by/compare/0.3.0...0.4.0) (2026-11-22)
+
+
+### Features
+
+* separate target temperature for the daily schedule ([0372a11](https://github.com/jackrayner/ha-ready-by/commit/0372a11028f277f24f5611ed056926ae16e5a7c1))
+
 ## [0.3.0](https://github.com/jackrayner/ha-ready-by/compare/0.2.0...0.3.0) (2026-11-22)
 
 
