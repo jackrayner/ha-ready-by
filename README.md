@@ -106,6 +106,7 @@ Events, for your own notifications:
 - `ready_by_heating_started`
 - `ready_by_late`: heating started too late to be ready on time
 - `ready_by_ready`: the ready-by time was reached; includes `water_temperature`
+- `ready_by_session_ended`: a run ended; includes `reason` (`manual` for End session, otherwise `scheduled`) and `heater_off` (whether the heater was turned off)
 
 Each event carries `config_entry_id`, `name`, `schedule` (`daily` or `one_off`), `ready_by`, `target`, `expected_ready` and `on_time`.
 

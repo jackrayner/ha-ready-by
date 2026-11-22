@@ -45,6 +45,7 @@ from .const import (
     EVENT_HEATING_STARTED,
     EVENT_LATE,
     EVENT_READY,
+    EVENT_SESSION_ENDED,
     FORECAST_INTERVAL,
     PHASE_HEATING,
     PHASE_HOLDING,
@@ -277,6 +278,10 @@ class ReadyByController:
             await self._async_finish(turn_off=True, force=True)
         else:
             await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+            self.hass.bus.async_fire(
+                EVENT_SESSION_ENDED,
+                {**self._event_data(None), "reason": "manual", "heater_off": True},
+            )
             self._notify()
 
     async def async_set_daily_off_at_ready_by(self, enabled: bool) -> None:
@@ -599,7 +604,9 @@ class ReadyByController:
         await self._async_finish(turn_off=True)
 
     async def _async_finish(self, *, turn_off: bool, force: bool = False) -> None:
+        """End the active run. force is a manual end: always turn off, and say so."""
         data = self.data
+        event_data = self._event_data(self.plan)
         if data.active == SCHEDULE_ONE_OFF:
             data.enabled = False
         elif data.active == SCHEDULE_DAILY:
@@ -616,6 +623,12 @@ class ReadyByController:
             # unless the session was ended by hand.
             if force or follow_on is None or follow_on.start > now + timedelta(minutes=5):
                 await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+            else:
+                turn_off = False
+        self.hass.bus.async_fire(
+            EVENT_SESSION_ENDED,
+            {**event_data, "reason": "manual" if force else "scheduled", "heater_off": turn_off},
+        )
         self._store.async_schedule_save()
         await self.async_replan()
 

@@ -33,6 +33,7 @@ MAX_TARGET: Final = 45.0
 EVENT_HEATING_STARTED: Final = "ready_by_heating_started"
 EVENT_READY: Final = "ready_by_ready"
 EVENT_LATE: Final = "ready_by_late"
+EVENT_SESSION_ENDED: Final = "ready_by_session_ended"
 
 SERVICE_SET_READY_BY: Final = "set_ready_by"
 SERVICE_IMPORT_SESSIONS: Final = "import_sessions"
