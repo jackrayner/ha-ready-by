@@ -127,8 +127,9 @@ async def test_changing_sources_relearns(hass: HomeAssistant):
     )
     await hass.async_block_till_done()
     controller = entry.runtime_data
+    # Discarded, then relearned (from an empty archive, with recorder import off).
     assert controller.data.sessions == []
-    assert controller.data.history_imported is False
+    assert controller.data.history_imported is True
 
     # Reloading with the same sources keeps what has been learned since.
     await controller.async_import([Session(start, start + timedelta(hours=2), 30, 34, 5)], [])

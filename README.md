@@ -93,7 +93,8 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 | Heating power threshold | 100 W | Power above which the heater counts as heating. |
 | Safety buffer | 15 min | Aim to be ready this long before the ready-by time. |
 | Starting heating rate | 1.0 °C/h | Used until 3 sessions have been learned. |
-| Learn from recorder history on first setup | On | Imports past sessions once. |
+| Learn from recorder history | On | When relearning, also use the recorder's history for the time before the input archive starts. |
+| Input archive size limit | 200 MB | The oldest months of the input archive are removed above this. A year takes about 5–10 MB. |
 
 ## Actions and events
 
@@ -101,7 +102,8 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 - `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled`, `target` and `off_at_ready_by`. Sets the daily time (which turns it on unless `enabled: false`) or the daily target, turns the daily schedule on or off, or sets `off_at_ready_by`.
 - `ready_by.import_sessions`: `config_entry_id`, `sessions`, `cooling`. Adds past sessions; returns how many were new.
 - `ready_by.end_session`: `config_entry_id`. Same as the End session button.
-- `ready_by.reset_model`: forgets everything learned, then relearns from recorder history if history learning is on.
+- `ready_by.export_sessions`: `config_entry_id`. Returns every learned session and cooling sample, in the format `import_sessions` takes, for backups.
+- `ready_by.reset_model`: forgets everything learned, then relearns from the input archive and, for the time before it, the recorder.
 
 Events, for your own notifications:
 
@@ -126,6 +128,14 @@ automation:
             {{ as_timestamp(trigger.event.data.expected_ready) | timestamp_custom('%H:%M') }}.
 ```
 
+## Learning history
+
+Ready By keeps everything it learns: every heating session and cooling sample, in its own storage, independent of the recorder. Up to 5,000 of each are kept. Past that, it drops the oldest sample from whichever 2 °C band of outside temperature has the most, so a long mild spell never pushes out cold-weather samples and the model covers every season.
+
+It also keeps an **input archive**: once a minute it records the water and outside temperatures, the heater's raw power, whether it's heating and its mode, in compressed monthly files under `.storage/ready_by/`. A year takes about 5–10 MB. When it has to relearn (on first setup, **Reset model**, or a change to a source entity or the power threshold), it replays the archive with the current settings, and uses the recorder only for the time before the archive starts. Changing the power threshold or detection rules therefore relearns from the full archive, not just the recorder's last few days. Changing a source *entity* can only use rows recorded from that entity, so it falls back to the recorder for older history.
+
+Use `ready_by.export_sessions` to back up what has been learned, and `ready_by.import_sessions` to restore it.
+
 ## Importing history
 
 [`scripts/influx_backfill.py`](scripts/influx_backfill.py) reads history from InfluxDB 1.x (as written by Home Assistant's InfluxDB integration) and prints a payload for `ready_by.import_sessions`. It needs only the Python standard library.
@@ -144,7 +154,7 @@ Replace `REPLACE_WITH_ENTRY_ID` in the output with the entry's ID, then paste it
 ## Limitations
 
 - Temperatures are assumed to be in °C.
-- A restart during a heating run starts a new session from the restart, so that run is learned as a shorter session.
+- A restart during a heating run starts a new session from the restart, so that run is learned as a shorter session. A later relearn from the input archive recovers the full run.
 - Things the integration can't see, such as the lid being off or people in the tub, make individual sessions noisy. Outlier rejection limits the damage, and the fit improves as sessions build up.
 
 ## Development
@@ -174,9 +184,10 @@ custom_components/ready_by/
 ├── const.py
 ├── model.py             # pure Python: session detection, heating/cooling fits, planner (no HA imports)
 ├── tracker.py           # climate/sensor states -> detector events (live and from history)
-├── history.py           # one-off recorder import on first setup
+├── history.py           # recorder import, for the time before the input archive
 ├── planner.py           # ReadyByController: settings, timers, forecast, climate calls
-├── store.py             # persisted sessions, settings and schedule state
+├── store.py             # persisted sessions, settings and schedule state; band-balanced trimming
+├── archive.py           # once-a-minute input archive in monthly gzip files, and replay to detector events
 ├── config_flow.py       # entity selection, and options (buffer, seed rate, history import)
 ├── entity.py            # shared device_info base entity
 ├── datetime.py          # ready-by time
@@ -186,7 +197,7 @@ custom_components/ready_by/
 ├── binary_sensor.py     # on time
 ├── button.py            # end session
 ├── diagnostics.py
-├── services.yaml        # set_ready_by, import_sessions, reset_model
+├── services.yaml        # set_ready_by, set_daily, end_session, export_sessions, import_sessions, reset_model
 ├── brand/               # icon.png / icon@2x.png / logo.png
 └── translations/en.json # no strings.json (Core-only build file)
 scripts/
@@ -194,6 +205,7 @@ scripts/
 tests/
 ├── conftest.py          # fake climate/sensor states, mocked climate and forecast services
 ├── test_model.py        # pure unit tests of the maths
+├── test_archive.py      # input archive format, replay, balanced trimming, relearning, export
 ├── test_planner.py      # scheduling, start/ready/hold timers, events, forecast
 ├── test_tracker.py      # heating detection and session learning
 ├── test_setup.py        # setup/unload, reload persistence, entities
@@ -203,6 +215,10 @@ tests/
 ├── test_influx_backfill.py
 └── test_manifest.py
 ```
+
+## Roadmap
+
+Planned follow-ups, including a non-linear outside-temperature model and tariff-aware scheduling, are in [`docs/roadmap.md`](./docs/roadmap.md).
 
 ## License
 

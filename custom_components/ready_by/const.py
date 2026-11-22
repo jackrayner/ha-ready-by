@@ -18,6 +18,7 @@ CONF_HOLD_HOURS: Final = "hold_hours"
 CONF_IMPORT_HISTORY: Final = "import_history"
 CONF_POWER: Final = "power_sensor"
 CONF_POWER_THRESHOLD: Final = "power_threshold"
+CONF_ARCHIVE_MB: Final = "archive_mb"
 
 DEFAULT_NAME: Final = "Hot tub"
 DEFAULT_TARGET: Final = 38.0
@@ -26,6 +27,7 @@ DEFAULT_SEED_RATE: Final = 1.0
 DEFAULT_HOLD_HOURS: Final = 2.0
 DEFAULT_IMPORT_HISTORY: Final = True
 DEFAULT_POWER_THRESHOLD: Final = 100.0
+DEFAULT_ARCHIVE_MB: Final = 200
 
 MIN_TARGET: Final = 10.0
 MAX_TARGET: Final = 45.0
@@ -40,6 +42,7 @@ SERVICE_IMPORT_SESSIONS: Final = "import_sessions"
 SERVICE_RESET_MODEL: Final = "reset_model"
 SERVICE_SET_DAILY: Final = "set_daily"
 SERVICE_END_SESSION: Final = "end_session"
+SERVICE_EXPORT_SESSIONS: Final = "export_sessions"
 
 ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
 ATTR_READY_BY: Final = "ready_by"
@@ -60,8 +63,11 @@ SCHEDULE_ONE_OFF: Final = "one_off"
 SCHEDULE_DAILY: Final = "daily"
 
 STORAGE_VERSION: Final = 1
-MAX_SESSIONS: Final = 200
-MAX_COOLING_SAMPLES: Final = 200
-HISTORY_DAYS: Final = 30
+MAX_SESSIONS: Final = 5000
+MAX_COOLING_SAMPLES: Final = 5000
+BALANCE_BAND_DEGREES: Final = 2.0
+HISTORY_DAYS: Final = 400
+ARCHIVE_SAMPLE_INTERVAL: Final = timedelta(minutes=1)
+ARCHIVE_FLUSH_INTERVAL: Final = timedelta(minutes=15)
 FORECAST_INTERVAL: Final = timedelta(minutes=30)
 REPLAN_COOLDOWN_SECONDS: Final = 30

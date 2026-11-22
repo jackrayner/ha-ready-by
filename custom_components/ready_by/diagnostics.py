@@ -12,7 +12,12 @@ from .planner import ReadyByConfigEntry
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ReadyByConfigEntry
 ) -> dict[str, Any]:
+    controller = entry.runtime_data
+    archive = controller.archive
+    files = await hass.async_add_executor_job(archive.files)
+    size = await hass.async_add_executor_job(archive.size)
     return {
         "entry": {"data": dict(entry.data), "options": dict(entry.options)},
-        **entry.runtime_data.diagnostics(),
+        **controller.diagnostics(),
+        "archive": {"files": [f.name for f in files], "bytes": size},
     }

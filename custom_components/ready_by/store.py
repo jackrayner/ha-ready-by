@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from typing import Any
@@ -11,6 +12,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BALANCE_BAND_DEGREES,
     DEFAULT_TARGET,
     DOMAIN,
     MAX_COOLING_SAMPLES,
@@ -47,13 +49,13 @@ class ReadyByData:
         """Add sessions not already known (by start time); return how many were added."""
         known = {s.start for s in self.sessions}
         new = [s for s in sessions if s.start not in known]
-        self.sessions = sorted(self.sessions + new, key=lambda s: s.start)[-MAX_SESSIONS:]
+        self.sessions = _balanced(self.sessions + new, MAX_SESSIONS)
         return len(new)
 
     def add_cooling(self, samples: list[CoolingSample]) -> int:
         known = {s.start for s in self.cooling}
         new = [s for s in samples if s.start not in known]
-        self.cooling = sorted(self.cooling + new, key=lambda s: s.start)[-MAX_COOLING_SAMPLES:]
+        self.cooling = _balanced(self.cooling + new, MAX_COOLING_SAMPLES)
         return len(new)
 
     def as_dict(self) -> dict[str, Any]:
@@ -114,6 +116,26 @@ class ReadyByData:
                 else None
             ),
         )
+
+
+def _balanced[T: (Session, CoolingSample)](samples: list[T], cap: int) -> list[T]:
+    """Sort by start; over the cap, drop the oldest from the busiest outside-temperature band.
+
+    Plain oldest-first trimming would let a long mild spell push out every
+    cold-weather sample; this keeps the whole range of conditions represented.
+    """
+    samples = sorted(samples, key=lambda s: s.start)
+    excess = len(samples) - cap
+    if excess <= 0:
+        return samples
+    bands: dict[int, list[T]] = {}
+    for sample in samples:
+        bands.setdefault(math.floor(sample.outside_avg / BALANCE_BAND_DEGREES), []).append(sample)
+    dropped: set[int] = set()
+    for _ in range(excess):
+        busiest = max(bands.values(), key=len)
+        dropped.add(id(busiest.pop(0)))
+    return [s for s in samples if id(s) not in dropped]
 
 
 class ReadyByStore:

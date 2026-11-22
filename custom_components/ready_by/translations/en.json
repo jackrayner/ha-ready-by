@@ -35,7 +35,8 @@
           "power_threshold": "Heating power threshold",
           "buffer_minutes": "Safety buffer",
           "seed_rate": "Starting heating rate",
-          "import_history": "Learn from recorder history on first setup"
+          "import_history": "Learn from recorder history",
+          "archive_mb": "Input archive size limit"
         },
         "data_description": {
           "water_sensor": "Leave empty to use the heater's own current temperature.",
@@ -43,7 +44,9 @@
           "power_sensor": "Optional. When set, the heater counts as heating while this reads above the power threshold, instead of using the climate entity. More accurate for heat pumps that don't report hvac_action.",
           "power_threshold": "Power above which the heater counts as heating.",
           "buffer_minutes": "Aim to reach the target this long before the ready-by time.",
-          "seed_rate": "Used until at least 3 heating sessions have been learned."
+          "seed_rate": "Used until at least 3 heating sessions have been learned.",
+          "archive_mb": "Ready By records its inputs once a minute so it can relearn from up to a year or more. A year takes about 5–10 MB; the oldest months are removed above this limit.",
+          "import_history": "Use the recorder's history too, for the time before the input archive starts."
         },
         "description": "Changing the heater, the water, outside or power sensor, or the power threshold discards learned sessions and relearns them from recorder history."
       }
@@ -200,6 +203,16 @@
         }
       }
     },
+    "export_sessions": {
+      "name": "Export sessions",
+      "description": "Returns every learned heating session and cooling sample, in the format Import sessions takes, for backups.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to export."
+        }
+      }
+    },
     "import_sessions": {
       "name": "Import sessions",
       "description": "Adds past heating sessions and cooling samples to the model, for example from scripts/influx_backfill.py.",
@@ -220,7 +233,7 @@
     },
     "reset_model": {
       "name": "Reset model",
-      "description": "Forgets every learned session and cooling sample.",
+      "description": "Forgets every learned session and cooling sample, then relearns from the input archive and, for the time before it, the recorder.",
       "fields": {
         "config_entry_id": {
           "name": "Entry",

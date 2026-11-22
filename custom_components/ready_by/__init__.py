@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
@@ -24,6 +26,7 @@ from .const import (
     MAX_TARGET,
     MIN_TARGET,
     SERVICE_END_SESSION,
+    SERVICE_EXPORT_SESSIONS,
     SERVICE_IMPORT_SESSIONS,
     SERVICE_RESET_MODEL,
     SERVICE_SET_DAILY,
@@ -51,6 +54,7 @@ _SAMPLE_SCHEMA = vol.Schema(
         vol.Required("water_start"): vol.Coerce(float),
         vol.Required("water_end"): vol.Coerce(float),
         vol.Required("outside_avg"): vol.Coerce(float),
+        vol.Optional("mode"): vol.Any(None, cv.string),
     }
 )
 
@@ -130,6 +134,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         elif ATTR_TIME not in call.data:
             await controller.async_replan()
 
+    async def export_sessions(call: ServiceCall) -> ServiceResponse:
+        return controller_for(call).export()
+
     async def end_session(call: ServiceCall) -> None:
         await controller_for(call).async_end_session()
 
@@ -146,6 +153,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     hass.services.async_register(DOMAIN, SERVICE_SET_DAILY, set_daily, SET_DAILY_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_END_SESSION, end_session, RESET_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_EXPORT_SESSIONS,
+        export_sessions,
+        RESET_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(DOMAIN, SERVICE_RESET_MODEL, reset_model, RESET_SCHEMA)
     return True
 
@@ -169,10 +183,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ReadyByConfigEntry) -> 
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ReadyByConfigEntry) -> None:
-    """Delete the learned data when the entry is removed."""
+    """Delete the learned data and input archive when the entry is removed."""
+    from .archive import InputArchive
     from .store import ReadyByStore
 
     await ReadyByStore(hass, entry.entry_id).async_remove()
+    archive = InputArchive(Path(hass.config.path(".storage", DOMAIN, entry.entry_id)), 0)
+    await hass.async_add_executor_job(archive.remove)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ReadyByConfigEntry) -> None:

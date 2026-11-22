@@ -55,6 +55,13 @@ end_session:
       selector:
         config_entry:
           integration: ready_by
+export_sessions:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ready_by
 import_sessions:
   fields:
     config_entry_id:

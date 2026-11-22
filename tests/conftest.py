@@ -32,6 +32,12 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir: str) -> str:
+    """Give each test its own config directory, since Ready By writes an input archive there."""
+    return hass_tmp_config_dir
+
+
 def set_climate(
     hass: HomeAssistant,
     mode: str = "off",

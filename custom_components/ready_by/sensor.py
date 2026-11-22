@@ -80,12 +80,14 @@ SENSORS: tuple[ReadyBySensorDescription, ...] = (
     ReadyBySensorDescription(
         key="fit_r2",
         entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
         value_fn=lambda c: _rounded(c.model.r2, 3),
     ),
     ReadyBySensorDescription(
         key="cooling_k",
         entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="1/h",
         suggested_display_precision=4,
         value_fn=lambda c: _rounded(c.cooling_k, 5),
