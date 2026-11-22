@@ -1,0 +1,17 @@
+{
+  "domain": "ready_by",
+  "name": "Ready By",
+  "codeowners": [
+    "@jackrayner"
+  ],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/jackrayner/ha-ready-by",
+  "integration_type": "helper",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/jackrayner/ha-ready-by/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

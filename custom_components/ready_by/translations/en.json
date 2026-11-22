@@ -1,0 +1,105 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ready By",
+        "description": "Choose the heater to schedule and the temperatures it should learn from. Temperatures are assumed to be in °C.",
+        "data": {
+          "name": "Name",
+          "climate_entity": "Heater (climate entity)",
+          "water_sensor": "Water temperature sensor",
+          "outside_sensor": "Outside temperature sensor",
+          "weather_entity": "Weather forecast"
+        },
+        "data_description": {
+          "water_sensor": "Leave empty to use the heater's own current temperature.",
+          "weather_entity": "Optional. Its hourly forecast is used for the outside temperature while heating."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This heater is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "buffer_minutes": "Safety buffer",
+          "seed_rate": "Starting heating rate",
+          "hold_hours": "Keep heating after the ready-by time",
+          "import_history": "Learn from recorder history on first setup"
+        },
+        "data_description": {
+          "buffer_minutes": "Aim to reach the target this long before the ready-by time.",
+          "seed_rate": "Used until at least 3 heating sessions have been learned.",
+          "hold_hours": "After this, the heater is turned off. 0 leaves it on."
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "on_time": { "name": "On time" }
+    },
+    "datetime": {
+      "ready_by": { "name": "Ready by" }
+    },
+    "number": {
+      "target_temperature": { "name": "Target temperature" }
+    },
+    "switch": {
+      "enabled": { "name": "Ready-by schedule" }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "scheduled": "Scheduled",
+          "heating": "Heating",
+          "holding": "Holding"
+        }
+      },
+      "start_time": { "name": "Start time" },
+      "expected_ready": { "name": "Expected ready" },
+      "heat_duration": { "name": "Heating time needed" },
+      "heating_rate": { "name": "Heating rate" },
+      "sessions_learned": { "name": "Sessions learned" },
+      "fit_r2": { "name": "Model fit (R²)" },
+      "cooling_k": { "name": "Cooling coefficient" }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "That Ready By entry isn't loaded."
+    }
+  },
+  "services": {
+    "set_ready_by": {
+      "name": "Set ready-by time",
+      "description": "Sets when the water should be hot and turns the schedule on.",
+      "fields": {
+        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to schedule." },
+        "ready_by": { "name": "Ready by", "description": "When the target should be reached." },
+        "target": { "name": "Target", "description": "Target temperature. Leave empty to keep the current one." }
+      }
+    },
+    "import_sessions": {
+      "name": "Import sessions",
+      "description": "Adds past heating sessions and cooling samples to the model, for example from scripts/influx_backfill.py.",
+      "fields": {
+        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to import into." },
+        "sessions": { "name": "Sessions", "description": "List of heating sessions (start, end, water_start, water_end, outside_avg)." },
+        "cooling": { "name": "Cooling samples", "description": "List of idle periods in the same format." }
+      }
+    },
+    "reset_model": {
+      "name": "Reset model",
+      "description": "Forgets every learned session and cooling sample.",
+      "fields": {
+        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to reset." }
+      }
+    }
+  }
+}

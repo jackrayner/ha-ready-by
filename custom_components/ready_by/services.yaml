@@ -1,0 +1,43 @@
+set_ready_by:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ready_by
+    ready_by:
+      required: true
+      example: "2026-11-23 19:00:00"
+      selector:
+        datetime:
+    target:
+      required: false
+      example: 38
+      selector:
+        number:
+          min: 10
+          max: 45
+          step: 0.5
+          unit_of_measurement: "°C"
+import_sessions:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ready_by
+    sessions:
+      required: false
+      selector:
+        object:
+    cooling:
+      required: false
+      selector:
+        object:
+reset_model:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: ready_by
