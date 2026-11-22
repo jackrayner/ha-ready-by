@@ -1,11 +1,11 @@
 {
   "domain": "ready_by",
   "name": "Ready By",
-  "codeowners": [
-    "@jackrayner"
-  ],
   "after_dependencies": [
     "recorder"
+  ],
+  "codeowners": [
+    "@jackrayner"
   ],
   "config_flow": true,
   "documentation": "https://github.com/jackrayner/ha-ready-by",

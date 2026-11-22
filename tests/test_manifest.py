@@ -28,3 +28,9 @@ def test_every_service_is_translated():
     names = [line[:-1] for line in services.splitlines() if line and not line[0].isspace()]
     translated = _load(COMPONENT_DIR / "translations" / "en.json")["services"]
     assert sorted(names) == sorted(translated)
+
+
+def test_manifest_keys_sorted_for_hassfest():
+    keys = list(_load(COMPONENT_DIR / "manifest.json"))
+    assert keys[:2] == ["domain", "name"]
+    assert keys[2:] == sorted(keys[2:])

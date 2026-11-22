@@ -1,5 +1,17 @@
 # Ready By
 
+<img src="custom_components/ready_by/brand/icon.png" alt="Ready By icon" width="120" align="right" />
+
+[![GitHub release](https://img.shields.io/github/v/release/jackrayner/ha-ready-by)](https://github.com/jackrayner/ha-ready-by/releases)
+[![Test](https://github.com/jackrayner/ha-ready-by/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/jackrayner/ha-ready-by/actions/workflows/test.yml)
+[![Lint](https://github.com/jackrayner/ha-ready-by/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/jackrayner/ha-ready-by/actions/workflows/lint.yml)
+[![Validate](https://github.com/jackrayner/ha-ready-by/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/jackrayner/ha-ready-by/actions/workflows/validate.yml)
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![License: MIT](https://img.shields.io/github/license/jackrayner/ha-ready-by)](./LICENSE)
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jackrayner&repository=ha-ready-by&category=integration)
+[![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ready_by)
+
 A Home Assistant custom integration that turns a heater on at the right time so the water (or room) is up to temperature by a time you choose. It was built for a hot tub with an air-source heat pump, but it works with any `climate` entity.
 
 It learns from every heating run how fast the heater warms the water at different outside and water temperatures, and how fast the water cools while the heater is off. From that, the current water temperature and the hourly weather forecast, it works out the latest moment it can switch on and still be ready in time.
@@ -16,14 +28,23 @@ Temperatures are assumed to be in °C.
 
 ## Installation
 
-1. In HACS, add this repository as a custom repository (category: Integration) and install **Ready By**.
-2. Restart Home Assistant.
-3. Go to **Settings → Devices & services → Add integration → Ready By**.
-4. Choose:
-   - the heater's climate entity
-   - a water temperature sensor (optional; leave it empty to use the climate entity's current temperature)
-   - an outside temperature sensor
-   - a weather entity (optional, for the hourly forecast)
+### Via HACS
+
+1. Click **Open in HACS** above, or in HACS add `https://github.com/jackrayner/ha-ready-by` as a [custom repository](https://hacs.xyz/docs/faq/custom_repositories/) (category: Integration).
+2. Download **Ready By** and restart Home Assistant.
+
+### Manual
+
+Copy `custom_components/ready_by/` into your Home Assistant `config/custom_components/` directory and restart.
+
+## Setup
+
+Click **Add integration** above, or go to **Settings → Devices & services → Add integration → Ready By**. Then choose:
+
+- the heater's climate entity
+- a water temperature sensor (optional; leave it empty to use the climate entity's current temperature)
+- an outside temperature sensor
+- a weather entity (optional, for the hourly forecast)
 
 On first setup it learns from whatever the recorder still holds (10 days by default). To use longer history from InfluxDB, see [Importing history](#importing-history).
 
@@ -97,3 +118,63 @@ Replace `REPLACE_WITH_ENTRY_ID` in the output with the entry's ID, then paste it
 - Temperatures are assumed to be in °C.
 - A restart during a heating run starts a new session from the restart, so that run is learned as a shorter session.
 - Things the integration can't see, such as the lid being off or people in the tub, make individual sessions noisy. Outlier rejection limits the damage, and the fit improves as sessions build up.
+
+## Development
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the dev setup and commit conventions.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt ruff
+
+python3 -m pytest
+ruff check . && ruff format --check .
+```
+
+`requirements.txt` is empty: the integration has no runtime dependencies. `requirements-dev.txt` adds `pytest` and `pytest-homeassistant-custom-component`, a full Home Assistant core install used only for testing.
+
+### Releases
+
+Versions are cut automatically by [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org/) on `main` (`feat:` → minor, `fix:` → patch, `feat!:`/`BREAKING CHANGE:` → major). It keeps a running release PR up to date with the changelog and version bump. Merging that PR tags the release and updates `manifest.json`.
+
+## Project structure
+
+```text
+custom_components/ready_by/
+├── manifest.json        # no runtime requirements; recorder is an after_dependency
+├── const.py
+├── model.py             # pure Python: session detection, heating/cooling fits, planner (no HA imports)
+├── tracker.py           # climate/sensor states -> detector events (live and from history)
+├── history.py           # one-off recorder import on first setup
+├── planner.py           # ReadyByController: settings, timers, forecast, climate calls
+├── store.py             # persisted sessions, settings and schedule state
+├── config_flow.py       # entity selection, and options (buffer, seed rate, hold, history import)
+├── entity.py            # shared device_info base entity
+├── datetime.py          # ready-by time
+├── number.py            # target temperature
+├── switch.py            # schedule on/off
+├── sensor.py            # status, start/ready times, duration, rate, diagnostics
+├── binary_sensor.py     # on time
+├── diagnostics.py
+├── services.yaml        # set_ready_by, import_sessions, reset_model
+├── brand/               # icon.png / icon@2x.png / logo.png
+└── translations/en.json # no strings.json (Core-only build file)
+scripts/
+└── influx_backfill.py   # InfluxDB 1.x history -> import_sessions payload (stdlib only)
+tests/
+├── conftest.py          # fake climate/sensor states, mocked climate and forecast services
+├── test_model.py        # pure unit tests of the maths
+├── test_planner.py      # scheduling, start/ready/hold timers, events, forecast
+├── test_tracker.py      # heating detection and session learning
+├── test_setup.py        # setup/unload, reload persistence, entities
+├── test_config_flow.py
+├── test_services.py
+├── test_history.py
+├── test_influx_backfill.py
+└── test_manifest.py
+```
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
