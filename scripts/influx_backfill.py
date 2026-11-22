@@ -13,6 +13,10 @@ Example:
         python3 scripts/influx_backfill.py --url http://ha.local:8086 \\
         --climate climate.hot_tub --water sensor.hot_tub_water \\
         --outside sensor.outside_temperature --days 365 > sessions.json
+
+Add --power sensor.heat_pump_power (and --power-threshold, default 100 W) to
+detect heating from the heater's power use, as the integration does when its
+power sensor option is set.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from typing import Any
 MODEL_PATH = Path(__file__).resolve().parent.parent / "custom_components" / "ready_by" / "model.py"
 HEATING_ACTIONS = {"heating", "preheating"}
 HEATING_MODES = {"heat", "heat_cool", "auto"}
+WATTS_PER_UNIT = {"mW": 0.001, "W": 1.0, "kW": 1000.0, "MW": 1_000_000.0}
 
 
 def load_model():
@@ -57,7 +62,10 @@ def query(url: str, db: str, q: str) -> list[dict[str, Any]]:
             raise RuntimeError(result["error"])
         for series in result.get("series", []):
             columns = series["columns"]
-            rows.extend(dict(zip(columns, values, strict=True)) for values in series["values"])
+            for values in series["values"]:
+                row = dict(zip(columns, values, strict=True))
+                row["_measurement"] = series.get("name")
+                rows.append(row)
     return rows
 
 
@@ -99,6 +107,8 @@ def build_events(
     climate_rows: list[dict[str, Any]],
     water_rows: list[dict[str, Any]] | None,
     outside_rows: list[dict[str, Any]],
+    power_rows: list[dict[str, Any]] | None = None,
+    power_threshold: float = 0.0,
 ) -> list[tuple[datetime, str, Any]]:
     def when(row: dict[str, Any]) -> datetime:
         return datetime.fromtimestamp(row["time"], tz=UTC)
@@ -107,9 +117,16 @@ def build_events(
     for row in climate_rows:
         if water_rows is None:
             events.append((when(row), "water", _float(row.get("current_temperature"))))
-        heating = climate_heating(row)
-        if heating is not None:
-            events.append((when(row), "heating", heating))
+        if power_rows is None:
+            heating = climate_heating(row)
+            if heating is not None:
+                events.append((when(row), "heating", heating))
+    for row in power_rows or []:
+        power = _float(row.get("value"))
+        if power is not None:
+            # Home Assistant's InfluxDB integration names the measurement after the unit.
+            power *= WATTS_PER_UNIT.get(row.get("_measurement"), 1.0)
+            events.append((when(row), "heating", power > power_threshold))
     for row in water_rows or []:
         events.append((when(row), "water", _float(row.get("value"))))
     for row in outside_rows:
@@ -124,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--climate", required=True)
     parser.add_argument("--water", help="omit to use the climate entity's current_temperature")
     parser.add_argument("--outside", required=True)
+    parser.add_argument("--power", help="heater power sensor; decides heating instead of climate")
+    parser.add_argument("--power-threshold", type=float, default=100.0, help="watts (default 100)")
     parser.add_argument("--days", type=int, default=365)
     args = parser.parse_args(argv)
 
@@ -131,7 +150,10 @@ def main(argv: list[str] | None = None) -> int:
     climate_rows = fetch_entity(args.url, args.db, args.climate, args.days)
     water_rows = fetch_entity(args.url, args.db, args.water, args.days) if args.water else None
     outside_rows = fetch_entity(args.url, args.db, args.outside, args.days)
-    sessions, cooling = model.detect(build_events(climate_rows, water_rows, outside_rows))
+    power_rows = fetch_entity(args.url, args.db, args.power, args.days) if args.power else None
+    sessions, cooling = model.detect(
+        build_events(climate_rows, water_rows, outside_rows, power_rows, args.power_threshold)
+    )
 
     print(
         f"Found {len(sessions)} heating sessions and {len(cooling)} cooling samples "

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -12,7 +13,12 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_TEMPERATURE,
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
 from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
@@ -21,11 +27,15 @@ from homeassistant.core import (
     State,
     callback,
 )
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.util import dt as dt_util
 
 from .model import CoolingSample, Session, SessionDetector
 
+FLUSH_INTERVAL = timedelta(minutes=5)
 HEATING_ACTIONS = {HVACAction.HEATING, HVACAction.PREHEATING}
 HEATING_MODES = {HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.AUTO}
 
@@ -60,24 +70,37 @@ def climate_is_heating(state: State | None) -> bool | None:
     return current < setpoint
 
 
+_WATTS_PER_UNIT = {"mW": 0.001, "W": 1.0, "kW": 1000.0, "MW": 1_000_000.0}
+
+
+def power_watts(state: State | None) -> float | None:
+    """A power sensor's reading in watts, converting from its unit."""
+    value = float_state(state)
+    if value is None:
+        return None
+    unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT, "W")
+    return value * _WATTS_PER_UNIT.get(unit, 1.0)
+
+
 def climate_water(state: State | None) -> float | None:
     if state is None:
         return None
     return _to_float(state.attributes.get(ATTR_CURRENT_TEMPERATURE))
 
 
-class _Readers:
-    def __init__(self, climate_id: str, water_id: str | None, outside_id: str) -> None:
-        self.climate_id = climate_id
-        self.water_id = water_id
-        self.outside_id = outside_id
+@dataclass(frozen=True)
+class Sources:
+    """The entities a Ready By entry reads."""
+
+    climate_id: str
+    outside_id: str
+    water_id: str | None = None
+    power_id: str | None = None
+    power_threshold: float = 0.0
 
     @property
     def entity_ids(self) -> list[str]:
-        ids = [self.climate_id, self.outside_id]
-        if self.water_id:
-            ids.append(self.water_id)
-        return ids
+        return [e for e in (self.climate_id, self.outside_id, self.water_id, self.power_id) if e]
 
     def events(self, state: State) -> list[tuple[datetime, str, Any]]:
         """Detector events implied by one state of one of our entities."""
@@ -86,9 +109,14 @@ class _Readers:
         if state.entity_id == self.climate_id:
             if self.water_id is None:
                 events.append((when, "water", climate_water(state)))
-            heating = climate_is_heating(state)
-            if heating is not None:
-                events.append((when, "heating", heating))
+            if self.power_id is None:
+                heating = climate_is_heating(state)
+                if heating is not None:
+                    events.append((when, "heating", heating))
+        if state.entity_id == self.power_id:
+            power = power_watts(state)
+            if power is not None:
+                events.append((when, "heating", power > self.power_threshold))
         if state.entity_id == self.water_id:
             events.append((when, "water", float_state(state)))
         if state.entity_id == self.outside_id:
@@ -97,34 +125,31 @@ class _Readers:
 
 
 def events_from_history(
-    states: Iterable[State], climate_id: str, water_id: str | None, outside_id: str
+    states: Iterable[State], sources: Sources
 ) -> list[tuple[datetime, str, Any]]:
-    readers = _Readers(climate_id, water_id, outside_id)
     events: list[tuple[datetime, str, Any]] = []
     for state in states:
-        events.extend(readers.events(state))
+        events.extend(sources.events(state))
     # Within one timestamp, apply readings before the heating transition they accompany.
     return sorted(events, key=lambda e: (e[0], e[1] == "heating"))
 
 
 class SessionTracker:
-    """Watches the climate and temperature entities and reports completed samples."""
+    """Watches the source entities and reports completed samples."""
 
     def __init__(
         self,
         hass: HomeAssistant,
-        climate_id: str,
-        water_id: str | None,
-        outside_id: str,
+        sources: Sources,
         on_sample: Callable[[Session | CoolingSample], None],
         on_change: Callable[[], None],
     ) -> None:
         self._hass = hass
-        self._readers = _Readers(climate_id, water_id, outside_id)
+        self._sources = sources
         self._on_sample = on_sample
         self._on_change = on_change
         self._detector = SessionDetector()
-        self._unsub: CALLBACK_TYPE | None = None
+        self._unsubs: list[CALLBACK_TYPE] = []
 
     @property
     def water(self) -> float | None:
@@ -141,19 +166,22 @@ class SessionTracker:
     @callback
     def async_start(self) -> None:
         now = dt_util.utcnow()
-        for entity_id in self._readers.entity_ids:
+        for entity_id in self._sources.entity_ids:
             state = self._hass.states.get(entity_id)
             if state is not None:
                 self._apply(state, when=now)
-        self._unsub = async_track_state_change_event(
-            self._hass, self._readers.entity_ids, self._async_state_changed
-        )
+        self._unsubs = [
+            async_track_state_change_event(
+                self._hass, self._sources.entity_ids, self._async_state_changed
+            ),
+            async_track_time_interval(self._hass, self._async_flush, FLUSH_INTERVAL),
+        ]
 
     @callback
     def async_stop(self) -> None:
-        if self._unsub:
-            self._unsub()
-            self._unsub = None
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs = []
 
     @callback
     def _async_state_changed(self, event: Event[EventStateChangedData]) -> None:
@@ -163,15 +191,22 @@ class SessionTracker:
         self._apply(state)
         self._on_change()
 
+    @callback
+    def _async_flush(self, now: datetime) -> None:
+        self._report(self._detector.flush(now))
+
     def _apply(self, state: State, when: datetime | None = None) -> None:
-        events = self._readers.events(state)
+        events = self._sources.events(state)
         for event_time, kind, value in sorted(events, key=lambda e: e[1] == "heating"):
             event_time = when or event_time
             if kind == "water":
-                self._detector.update_water(event_time, value)
+                done = self._detector.update_water(event_time, value)
             elif kind == "outside":
-                self._detector.update_outside(event_time, value)
+                done = self._detector.update_outside(event_time, value)
             else:
-                result = self._detector.update_heating(event_time, value)
-                if result is not None:
-                    self._on_sample(result)
+                done = self._detector.update_heating(event_time, value)
+            self._report(done)
+
+    def _report(self, samples: list[Session | CoolingSample]) -> None:
+        for sample in samples:
+            self._on_sample(sample)

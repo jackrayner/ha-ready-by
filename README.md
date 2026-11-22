@@ -22,7 +22,7 @@ It learns from every heating run how fast the heater warms the water at differen
 - **Planning.** It simulates the water in 5-minute steps: cooling from now until a candidate start time, then heating, using the outside sensor now and the hourly forecast after that. A binary search finds the latest start that still reaches the target by the ready-by time (minus an optional safety buffer). It plans again when the temperatures, forecast, target or ready-by time change.
 - **Control.** At the start time it sets the climate entity to `heat` at the target temperature. After the ready-by time it keeps heating for a hold period you choose, then turns the climate entity off. If there isn't enough time, it starts immediately and marks the plan as late.
 
-Heating is detected from the climate entity's `hvac_action`. If the entity doesn't report one, it's treated as heating whenever it's in a heating mode and below its setpoint.
+Heating is detected from the climate entity's `hvac_action`. If the entity doesn't report one, it's treated as heating whenever it's in a heating mode and below its setpoint. That guess is rough, so if the heater has a power sensor, set it in the options: the heater then counts as heating while its power is above a threshold. Stops shorter than 10 minutes, such as a heat pump's defrost cycle, don't split a session. A session ends when the water first reaches its highest temperature, so time spent holding the setpoint doesn't drag the learned rate down. Power readings in kW (or mW/MW) are converted to watts.
 
 Temperatures are assumed to be in °C.
 
@@ -67,6 +67,8 @@ On first setup it learns from whatever the recorder still holds (10 days by defa
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| Heater power sensor | none | When set, decides when the heater is heating. Changing it discards learned sessions and relearns them from history. |
+| Heating power threshold | 100 W | Power above which the heater counts as heating. |
 | Safety buffer | 15 min | Aim to be ready this long before the ready-by time. |
 | Starting heating rate | 1.0 °C/h | Used until 3 sessions have been learned. |
 | Keep heating after the ready-by time | 2 h | Then the heater is turned off. 0 leaves it on. |
@@ -110,6 +112,8 @@ INFLUX_USERNAME=homeassistant INFLUX_PASSWORD=... \
   --climate climate.hot_tub --water sensor.hot_tub_water \
   --outside sensor.outside_temperature --days 365 > sessions.json
 ```
+
+If you use a power sensor in the integration, pass the same one with `--power` (and `--power-threshold`) so history is read the same way.
 
 Replace `REPLACE_WITH_ENTRY_ID` in the output with the entry's ID, then paste it into **Developer tools → Actions** for `ready_by.import_sessions` in YAML mode. Sessions already known are skipped.
 

@@ -33,6 +33,7 @@ class ReadyByData:
     phase: str = PHASE_IDLE
     started_at: datetime | None = None
     history_imported: bool = False
+    sources_key: str | None = None
 
     def add_sessions(self, sessions: list[Session]) -> int:
         """Add sessions not already known (by start time); return how many were added."""
@@ -57,6 +58,7 @@ class ReadyByData:
             "phase": self.phase,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "history_imported": self.history_imported,
+            "sources_key": self.sources_key,
         }
 
     @classmethod
@@ -72,6 +74,7 @@ class ReadyByData:
                 dt_util.parse_datetime(raw["started_at"]) if raw.get("started_at") else None
             ),
             history_imported=bool(raw.get("history_imported", False)),
+            sources_key=raw.get("sources_key"),
         )
 
 

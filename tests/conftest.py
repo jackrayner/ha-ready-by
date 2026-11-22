@@ -12,6 +12,8 @@ from custom_components.ready_by.const import (
     CONF_HOLD_HOURS,
     CONF_IMPORT_HISTORY,
     CONF_OUTSIDE,
+    CONF_POWER,
+    CONF_POWER_THRESHOLD,
     CONF_SEED_RATE,
     CONF_WATER,
     CONF_WEATHER,
@@ -22,6 +24,7 @@ CLIMATE = "climate.hot_tub"
 WATER = "sensor.hot_tub_water"
 OUTSIDE = "sensor.outside"
 WEATHER = "weather.home"
+POWER = "sensor.heat_pump_power"
 
 
 @pytest.fixture(autouse=True)
@@ -85,6 +88,7 @@ def make_entry(
     hold_hours: float = 2.0,
     buffer_minutes: int = 0,
     seed_rate: float = 2.0,
+    power: str | None = None,
 ) -> MockConfigEntry:
     data = {"name": "Hot tub", CONF_CLIMATE: CLIMATE, CONF_OUTSIDE: OUTSIDE}
     if water:
@@ -101,6 +105,7 @@ def make_entry(
             CONF_SEED_RATE: seed_rate,
             CONF_HOLD_HOURS: hold_hours,
             CONF_IMPORT_HISTORY: False,
+            **({CONF_POWER: power, CONF_POWER_THRESHOLD: 100.0} if power else {}),
         },
     )
 

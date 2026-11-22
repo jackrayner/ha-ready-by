@@ -17,6 +17,7 @@ from typing import Any
 MIN_SESSION_DURATION = timedelta(minutes=30)
 MIN_SESSION_RISE = 1.0
 MIN_IDLE_FOR_COOLING = timedelta(hours=2)
+STOP_MERGE_GAP = timedelta(minutes=10)
 MIN_COOLING_DROP = 0.2
 MIN_RATE = 0.1
 MAX_RATE_HEADROOM = 1.2
@@ -160,11 +161,21 @@ class _TimeAverage:
         self._last_time = max(self._last_time, when)
 
 
+Sample = Session | CoolingSample
+
+
 class SessionDetector:
     """State machine turning heating/water/outside updates into sessions.
 
-    Feed it time-ordered updates. update_heating() returns a completed Session
-    or CoolingSample when a transition produces a valid one, otherwise None.
+    Feed it time-ordered updates; each update returns any samples it completed.
+    A heating stop is held for STOP_MERGE_GAP before it ends the session, so a
+    brief pause (a defrost cycle, a flickering power reading) doesn't split one
+    heating run into fragments too short to learn from. Call flush() as time
+    passes, or at the end of a history, to release a held stop.
+
+    A session ends when the water first reached its highest temperature, not
+    when the heater stopped: a heater holding its setpoint isn't warming the
+    water, and counting that time would understate the heating rate.
     """
 
     def __init__(self) -> None:
@@ -174,51 +185,82 @@ class SessionDetector:
         self._phase_start: datetime | None = None
         self._phase_water: float | None = None
         self._outside_avg: _TimeAverage | None = None
+        self._pending_stop: tuple[datetime, float | None] | None = None
+        self._peak: tuple[datetime, float] | None = None
 
-    def update_water(self, when: datetime, value: float | None) -> None:
+    def update_water(self, when: datetime, value: float | None) -> list[Sample]:
+        done = self.flush(when)
         self.water = value
-        if self.heating is None or self._phase_start is None:
-            return
-        if self._phase_water is None and value is not None:
-            # Heating or idling began before the first water reading; start the phase now.
-            self._start_phase(when)
+        if self.heating is not None and self._phase_start is not None:
+            if self._phase_water is None and value is not None:
+                # The phase began before the first water reading; start it now.
+                self._start_phase(when)
+            elif self.heating and value is not None and self._pending_stop is None:
+                if self._peak is None or value > self._peak[1]:
+                    self._peak = (when, value)
+        return done
 
-    def update_outside(self, when: datetime, value: float | None) -> None:
+    def update_outside(self, when: datetime, value: float | None) -> list[Sample]:
+        done = self.flush(when)
         self.outside = value
         if self._outside_avg is not None:
             self._outside_avg.add(when, value)
+        return done
 
-    def update_heating(self, when: datetime, heating: bool) -> Session | CoolingSample | None:
+    def update_heating(self, when: datetime, heating: bool) -> list[Sample]:
+        done = self.flush(when)
         if heating == self.heating:
-            return None
-        previous = self.heating
-        result: Session | CoolingSample | None = None
-        if previous is not None:
-            result = self._finish_phase(when, was_heating=previous)
+            return done
+        if self.heating and not heating:
+            self._pending_stop = (when, self.water)
+            self.heating = False
+            return done
+        if heating and self._pending_stop is not None:
+            self._pending_stop = None
+            self.heating = True
+            return done
+        if self.heating is not None:
+            done.extend(self._finish_phase(when, was_heating=self.heating))
         self.heating = heating
         self._start_phase(when)
-        return result
+        return done
 
-    def _start_phase(self, when: datetime) -> None:
+    def flush(self, now: datetime) -> list[Sample]:
+        """End a held heating stop once it has lasted longer than STOP_MERGE_GAP."""
+        if self._pending_stop is None or now - self._pending_stop[0] <= STOP_MERGE_GAP:
+            return []
+        stopped_at, water = self._pending_stop
+        self._pending_stop = None
+        done = self._finish_phase(stopped_at, was_heating=True, water_end=water)
+        self._start_phase(stopped_at, water=water)
+        return done
+
+    def _start_phase(self, when: datetime, water: float | None = None) -> None:
         self._phase_start = when
-        self._phase_water = self.water
+        self._phase_water = self.water if water is None else water
         self._outside_avg = _TimeAverage(when, self.outside)
+        self._peak = None
 
-    def _finish_phase(self, when: datetime, *, was_heating: bool) -> Session | CoolingSample | None:
-        if self._phase_start is None or self._phase_water is None or self.water is None:
-            return None
+    def _finish_phase(
+        self, when: datetime, *, was_heating: bool, water_end: float | None = None
+    ) -> list[Sample]:
+        water_end = self.water if water_end is None else water_end
+        if self._phase_start is None or self._phase_water is None or water_end is None:
+            return []
+        if was_heating and self._peak is not None and self._peak[1] >= water_end:
+            when, water_end = self._peak
         outside_avg = self._outside_avg.average(when) if self._outside_avg else None
         if outside_avg is None:
-            return None
+            return []
         cls = Session if was_heating else CoolingSample
         sample = cls(
             start=self._phase_start,
             end=when,
             water_start=self._phase_water,
-            water_end=self.water,
+            water_end=water_end,
             outside_avg=outside_avg,
         )
-        return sample if sample.is_valid() else None
+        return [sample] if sample.is_valid() else []
 
 
 def detect(
@@ -227,21 +269,23 @@ def detect(
     """Run time-ordered (when, kind, value) events through a SessionDetector.
 
     kind is "heating" (bool), "water" (float or None) or "outside" (float or None).
+    A heating stop still held at the end of the events is treated as final.
     """
     detector = SessionDetector()
-    sessions: list[Session] = []
-    cooling: list[CoolingSample] = []
+    done: list[Sample] = []
+    last: datetime | None = None
     for when, kind, value in sorted(events, key=lambda e: e[0]):
+        last = when
         if kind == "water":
-            detector.update_water(when, value)
+            done.extend(detector.update_water(when, value))
         elif kind == "outside":
-            detector.update_outside(when, value)
+            done.extend(detector.update_outside(when, value))
         elif kind == "heating":
-            result = detector.update_heating(when, bool(value))
-            if isinstance(result, Session):
-                sessions.append(result)
-            elif isinstance(result, CoolingSample):
-                cooling.append(result)
+            done.extend(detector.update_heating(when, bool(value)))
+    if last is not None:
+        done.extend(detector.flush(last + STOP_MERGE_GAP * 2))
+    sessions = [s for s in done if isinstance(s, Session)]
+    cooling = [s for s in done if isinstance(s, CoolingSample)]
     return sessions, cooling
 
 

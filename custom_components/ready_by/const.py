@@ -16,6 +16,8 @@ CONF_BUFFER_MINUTES: Final = "buffer_minutes"
 CONF_SEED_RATE: Final = "seed_rate"
 CONF_HOLD_HOURS: Final = "hold_hours"
 CONF_IMPORT_HISTORY: Final = "import_history"
+CONF_POWER: Final = "power_sensor"
+CONF_POWER_THRESHOLD: Final = "power_threshold"
 
 DEFAULT_NAME: Final = "Hot tub"
 DEFAULT_TARGET: Final = 38.0
@@ -23,6 +25,7 @@ DEFAULT_BUFFER_MINUTES: Final = 15
 DEFAULT_SEED_RATE: Final = 1.0
 DEFAULT_HOLD_HOURS: Final = 2.0
 DEFAULT_IMPORT_HISTORY: Final = True
+DEFAULT_POWER_THRESHOLD: Final = 100.0
 
 MIN_TARGET: Final = 10.0
 MAX_TARGET: Final = 45.0

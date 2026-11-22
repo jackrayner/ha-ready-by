@@ -79,3 +79,28 @@ def test_main_without_water_sensor(capsys):
         backfill.main(["--climate", "climate.hot_tub", "--outside", "sensor.outside"])
     out = json.loads(capsys.readouterr().out)
     assert out["sessions"][0]["water_end"] == 37
+
+
+def test_build_events_with_power():
+    rows_climate = [{"time": T0, "state": "heat", "hvac_action_str": "heating"}]
+    rows_power = [
+        {"time": T0, "value": 10},
+        {"time": T0 + HOUR, "value": 1500},
+        {"time": T0 + 3 * HOUR, "value": 5},
+    ]
+    rows_water = [{"time": T0, "value": 30}, {"time": T0 + 3 * HOUR, "value": 34}]
+    rows_outside = [{"time": T0, "value": 5}]
+    events = backfill.build_events(rows_climate, rows_water, rows_outside, rows_power, 100)
+    heating = [(e[0].timestamp(), e[2]) for e in events if e[1] == "heating"]
+    assert heating == [(T0, False), (T0 + HOUR, True), (T0 + 3 * HOUR, False)]
+    sessions, _ = backfill.load_model().detect(events)
+    assert sessions[0].rate == 2.0
+
+
+def test_power_rows_in_kilowatts():
+    rows_power = [
+        {"time": T0, "value": 0.05, "_measurement": "kW"},
+        {"time": T0 + HOUR, "value": 1.4, "_measurement": "kW"},
+    ]
+    events = backfill.build_events([], [], [], rows_power, 100)
+    assert [e[2] for e in events if e[1] == "heating"] == [False, True]

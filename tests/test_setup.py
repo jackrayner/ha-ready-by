@@ -5,7 +5,12 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from custom_components.ready_by.const import PHASE_HEATING, PHASE_SCHEDULED
+from custom_components.ready_by.const import (
+    CONF_POWER,
+    CONF_POWER_THRESHOLD,
+    PHASE_HEATING,
+    PHASE_SCHEDULED,
+)
 from custom_components.ready_by.diagnostics import async_get_config_entry_diagnostics
 from custom_components.ready_by.model import Session
 
@@ -106,3 +111,29 @@ async def test_diagnostics(hass: HomeAssistant):
     assert diag["model"]["kind"] == "seed"
     assert diag["water"] == 30.0
     assert diag["outside"] == 5.0
+
+
+async def test_changing_sources_relearns(hass: HomeAssistant):
+    set_climate(hass)
+    set_temps(hass)
+    entry = await setup_entry(hass, make_entry())
+    start = dt_util.utcnow() - timedelta(days=1)
+    await entry.runtime_data.async_import(
+        [Session(start, start + timedelta(hours=2), 30, 34, 5)], []
+    )
+    entry.runtime_data.data.history_imported = True
+
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, CONF_POWER: "sensor.heat_pump_power", CONF_POWER_THRESHOLD: 100},
+    )
+    await hass.async_block_till_done()
+    controller = entry.runtime_data
+    assert controller.data.sessions == []
+    assert controller.data.history_imported is False
+
+    # Reloading with the same sources keeps what has been learned since.
+    await controller.async_import([Session(start, start + timedelta(hours=2), 30, 34, 5)], [])
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert len(entry.runtime_data.data.sessions) == 1

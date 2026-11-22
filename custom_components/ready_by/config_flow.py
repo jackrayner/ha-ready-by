@@ -17,6 +17,8 @@ from .const import (
     CONF_HOLD_HOURS,
     CONF_IMPORT_HISTORY,
     CONF_OUTSIDE,
+    CONF_POWER,
+    CONF_POWER_THRESHOLD,
     CONF_SEED_RATE,
     CONF_WATER,
     CONF_WEATHER,
@@ -24,6 +26,7 @@ from .const import (
     DEFAULT_HOLD_HOURS,
     DEFAULT_IMPORT_HISTORY,
     DEFAULT_NAME,
+    DEFAULT_POWER_THRESHOLD,
     DEFAULT_SEED_RATE,
     DOMAIN,
 )
@@ -50,6 +53,23 @@ USER_SCHEMA = vol.Schema(
 def _options_schema(options: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
+            vol.Optional(
+                CONF_POWER, description={"suggested_value": options.get(CONF_POWER)}
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class=SensorDeviceClass.POWER)
+            ),
+            vol.Required(
+                CONF_POWER_THRESHOLD,
+                default=options.get(CONF_POWER_THRESHOLD, DEFAULT_POWER_THRESHOLD),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=10000,
+                    step=10,
+                    unit_of_measurement="W",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
             vol.Required(
                 CONF_BUFFER_MINUTES,
                 default=options.get(CONF_BUFFER_MINUTES, DEFAULT_BUFFER_MINUTES),
@@ -107,6 +127,7 @@ class ReadyByConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_SEED_RATE: DEFAULT_SEED_RATE,
                     CONF_HOLD_HOURS: DEFAULT_HOLD_HOURS,
                     CONF_IMPORT_HISTORY: DEFAULT_IMPORT_HISTORY,
+                    CONF_POWER_THRESHOLD: DEFAULT_POWER_THRESHOLD,
                 },
             )
         return self.async_show_form(step_id="user", data_schema=USER_SCHEMA)

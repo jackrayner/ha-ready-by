@@ -215,6 +215,9 @@ async def test_learns_sessions_from_climate(
     hass.states.async_set("sensor.hot_tub_water", "34")
     set_climate(hass, mode="heat", action="idle")
     await hass.async_block_till_done()
+    # A stop only ends the session once it has outlasted the merge gap.
+    assert controller.data.sessions == []
+    await _fire(hass, freezer, dt_util.utcnow() + timedelta(minutes=15))
 
     assert len(controller.data.sessions) == 1
     assert controller.data.sessions[0].rate == 2.0

@@ -31,6 +31,8 @@ from .const import (
     CONF_HOLD_HOURS,
     CONF_IMPORT_HISTORY,
     CONF_OUTSIDE,
+    CONF_POWER,
+    CONF_POWER_THRESHOLD,
     CONF_SEED_RATE,
     CONF_WATER,
     CONF_WEATHER,
@@ -38,6 +40,7 @@ from .const import (
     DEFAULT_HOLD_HOURS,
     DEFAULT_IMPORT_HISTORY,
     DEFAULT_NAME,
+    DEFAULT_POWER_THRESHOLD,
     DEFAULT_SEED_RATE,
     EVENT_HEATING_STARTED,
     EVENT_LATE,
@@ -63,7 +66,7 @@ from .model import (
     simulate_heating,
 )
 from .store import ReadyByData, ReadyByStore
-from .tracker import SessionTracker
+from .tracker import SessionTracker, Sources
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,9 +91,7 @@ class ReadyByController:
         self._forecast_unsub: CALLBACK_TYPE | None = None
         self.tracker = SessionTracker(
             hass,
-            self.climate_id,
-            self.water_id,
-            self.outside_id,
+            self.sources,
             on_sample=self._on_sample,
             on_change=self._on_inputs_changed,
         )
@@ -119,6 +120,18 @@ class ReadyByController:
         return self.entry.data[CONF_OUTSIDE]
 
     @property
+    def sources(self) -> Sources:
+        return Sources(
+            climate_id=self.climate_id,
+            outside_id=self.outside_id,
+            water_id=self.water_id,
+            power_id=self.entry.options.get(CONF_POWER) or None,
+            power_threshold=float(
+                self.entry.options.get(CONF_POWER_THRESHOLD, DEFAULT_POWER_THRESHOLD)
+            ),
+        )
+
+    @property
     def weather_id(self) -> str | None:
         return self.entry.data.get(CONF_WEATHER) or None
 
@@ -145,6 +158,7 @@ class ReadyByController:
 
     async def async_setup(self) -> None:
         self.data = await self._store.async_load()
+        self._check_sources()
         self._refit()
         self.tracker.async_start()
         if self.weather_id:
@@ -238,9 +252,7 @@ class ReadyByController:
 
     async def _async_import_history(self) -> None:
         try:
-            sessions, cooling = await async_load_history(
-                self.hass, self.climate_id, self.water_id, self.outside_id
-            )
+            sessions, cooling = await async_load_history(self.hass, self.sources)
         except Exception:  # noqa: BLE001 - a failed import must not break the integration
             _LOGGER.warning("Could not import recorder history for %s", self.name, exc_info=True)
             return
@@ -261,6 +273,21 @@ class ReadyByController:
     @callback
     def _on_inputs_changed(self) -> None:
         self._debouncer.async_schedule_call()
+
+    def _check_sources(self) -> None:
+        """Forget data learned from different entities, so it can be relearned."""
+        key = repr(self.sources)
+        if self.data.sources_key is not None and self.data.sources_key != key:
+            _LOGGER.info(
+                "Sources for %s changed; discarding %d learned sessions to relearn them",
+                self.name,
+                len(self.data.sessions),
+            )
+            self.data.sessions = []
+            self.data.cooling = []
+            self.data.history_imported = False
+        self.data.sources_key = key
+        self._store.async_schedule_save()
 
     def _refit(self) -> None:
         self.model = fit_heating(self.data.sessions, self.seed_rate)

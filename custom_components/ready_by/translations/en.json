@@ -25,12 +25,16 @@
     "step": {
       "init": {
         "data": {
+          "power_sensor": "Heater power sensor",
+          "power_threshold": "Heating power threshold",
           "buffer_minutes": "Safety buffer",
           "seed_rate": "Starting heating rate",
           "hold_hours": "Keep heating after the ready-by time",
           "import_history": "Learn from recorder history on first setup"
         },
         "data_description": {
+          "power_sensor": "Optional. When set, the heater counts as heating while this reads above the threshold, instead of using the climate entity. More accurate for heat pumps that don't report hvac_action. Changing it relearns sessions from history.",
+          "power_threshold": "Power above which the heater counts as heating.",
           "buffer_minutes": "Aim to reach the target this long before the ready-by time.",
           "seed_rate": "Used until at least 3 heating sessions have been learned.",
           "hold_hours": "After this, the heater is turned off. 0 leaves it on."
@@ -40,16 +44,24 @@
   },
   "entity": {
     "binary_sensor": {
-      "on_time": { "name": "On time" }
+      "on_time": {
+        "name": "On time"
+      }
     },
     "datetime": {
-      "ready_by": { "name": "Ready by" }
+      "ready_by": {
+        "name": "Ready by"
+      }
     },
     "number": {
-      "target_temperature": { "name": "Target temperature" }
+      "target_temperature": {
+        "name": "Target temperature"
+      }
     },
     "switch": {
-      "enabled": { "name": "Ready-by schedule" }
+      "enabled": {
+        "name": "Ready-by schedule"
+      }
     },
     "sensor": {
       "status": {
@@ -61,13 +73,27 @@
           "holding": "Holding"
         }
       },
-      "start_time": { "name": "Start time" },
-      "expected_ready": { "name": "Expected ready" },
-      "heat_duration": { "name": "Heating time needed" },
-      "heating_rate": { "name": "Heating rate" },
-      "sessions_learned": { "name": "Sessions learned" },
-      "fit_r2": { "name": "Model fit (R²)" },
-      "cooling_k": { "name": "Cooling coefficient" }
+      "start_time": {
+        "name": "Start time"
+      },
+      "expected_ready": {
+        "name": "Expected ready"
+      },
+      "heat_duration": {
+        "name": "Heating time needed"
+      },
+      "heating_rate": {
+        "name": "Heating rate"
+      },
+      "sessions_learned": {
+        "name": "Sessions learned"
+      },
+      "fit_r2": {
+        "name": "Model fit (R²)"
+      },
+      "cooling_k": {
+        "name": "Cooling coefficient"
+      }
     }
   },
   "exceptions": {
@@ -80,25 +106,46 @@
       "name": "Set ready-by time",
       "description": "Sets when the water should be hot and turns the schedule on.",
       "fields": {
-        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to schedule." },
-        "ready_by": { "name": "Ready by", "description": "When the target should be reached." },
-        "target": { "name": "Target", "description": "Target temperature. Leave empty to keep the current one." }
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to schedule."
+        },
+        "ready_by": {
+          "name": "Ready by",
+          "description": "When the target should be reached."
+        },
+        "target": {
+          "name": "Target",
+          "description": "Target temperature. Leave empty to keep the current one."
+        }
       }
     },
     "import_sessions": {
       "name": "Import sessions",
       "description": "Adds past heating sessions and cooling samples to the model, for example from scripts/influx_backfill.py.",
       "fields": {
-        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to import into." },
-        "sessions": { "name": "Sessions", "description": "List of heating sessions (start, end, water_start, water_end, outside_avg)." },
-        "cooling": { "name": "Cooling samples", "description": "List of idle periods in the same format." }
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to import into."
+        },
+        "sessions": {
+          "name": "Sessions",
+          "description": "List of heating sessions (start, end, water_start, water_end, outside_avg)."
+        },
+        "cooling": {
+          "name": "Cooling samples",
+          "description": "List of idle periods in the same format."
+        }
       }
     },
     "reset_model": {
       "name": "Reset model",
       "description": "Forgets every learned session and cooling sample.",
       "fields": {
-        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to reset." }
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to reset."
+        }
       }
     }
   }

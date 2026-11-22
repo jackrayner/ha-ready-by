@@ -9,6 +9,8 @@ from custom_components.ready_by.const import (
     CONF_HOLD_HOURS,
     CONF_IMPORT_HISTORY,
     CONF_OUTSIDE,
+    CONF_POWER,
+    CONF_POWER_THRESHOLD,
     CONF_SEED_RATE,
     CONF_WATER,
     DOMAIN,
@@ -59,9 +61,13 @@ async def test_options_flow_updates_and_reloads(hass: HomeAssistant):
             CONF_SEED_RATE: 1.5,
             CONF_HOLD_HOURS: 0,
             CONF_IMPORT_HISTORY: False,
+            CONF_POWER: "sensor.heat_pump_power",
+            CONF_POWER_THRESHOLD: 250,
         },
     )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.runtime_data.sources.power_id == "sensor.heat_pump_power"
+    assert entry.runtime_data.sources.power_threshold == 250
     assert entry.runtime_data.seed_rate == 1.5
     assert entry.runtime_data.buffer.total_seconds() == 1800
