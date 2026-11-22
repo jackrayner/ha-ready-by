@@ -46,6 +46,7 @@ ATTR_SESSIONS: Final = "sessions"
 ATTR_COOLING: Final = "cooling"
 ATTR_TIME: Final = "time"
 ATTR_ENABLED: Final = "enabled"
+ATTR_OFF_AT_READY_BY: Final = "off_at_ready_by"
 
 PHASE_IDLE: Final = "idle"
 PHASE_SCHEDULED: Final = "scheduled"

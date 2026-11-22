@@ -243,6 +243,16 @@ class ReadyByController:
         self._store.async_schedule_save()
         await self.async_replan()
 
+    async def async_set_daily_off_at_ready_by(self, enabled: bool) -> None:
+        self.data.daily_off_at_ready_by = enabled
+        if enabled and self.data.active == SCHEDULE_DAILY and self.data.phase == PHASE_HOLDING:
+            # Already past today's ready-by: end the hold now.
+            self._cancel(end=True)
+            await self._async_finish(turn_off=True)
+            return
+        self._store.async_schedule_save()
+        self._notify()
+
     def _stop_managing(self, schedule: str) -> None:
         """Stop a running or planned run of this schedule. The heater is left as it is."""
         if self.data.active != schedule:
@@ -534,7 +544,9 @@ class ReadyByController:
             EVENT_READY,
             {**self._event_data(self.plan), "water_temperature": self.tracker.water},
         )
-        if self.hold > timedelta(0):
+        if self.data.active == SCHEDULE_DAILY and self.data.daily_off_at_ready_by:
+            await self._async_finish(turn_off=True)
+        elif self.hold > timedelta(0):
             self.data.phase = PHASE_HOLDING
             self._schedule_ready_and_end()
             self._store.async_schedule_save()

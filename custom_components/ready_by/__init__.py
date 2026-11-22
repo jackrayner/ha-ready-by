@@ -15,6 +15,7 @@ from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_COOLING,
     ATTR_ENABLED,
+    ATTR_OFF_AT_READY_BY,
     ATTR_READY_BY,
     ATTR_SESSIONS,
     ATTR_TARGET,
@@ -73,6 +74,7 @@ SET_DAILY_SCHEMA = vol.Schema(
         vol.Required(ATTR_CONFIG_ENTRY_ID): cv.string,
         vol.Optional(ATTR_TIME): cv.time,
         vol.Optional(ATTR_ENABLED): cv.boolean,
+        vol.Optional(ATTR_OFF_AT_READY_BY): cv.boolean,
         vol.Optional(ATTR_TARGET): vol.All(
             vol.Coerce(float), vol.Range(min=MIN_TARGET, max=MAX_TARGET)
         ),
@@ -115,6 +117,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         controller = controller_for(call)
         if ATTR_TARGET in call.data:
             await controller.async_set_target(call.data[ATTR_TARGET], replan=False)
+        if ATTR_OFF_AT_READY_BY in call.data:
+            await controller.async_set_daily_off_at_ready_by(call.data[ATTR_OFF_AT_READY_BY])
         if ATTR_TIME in call.data:
             await controller.async_set_daily_time(
                 call.data[ATTR_TIME], enable=call.data.get(ATTR_ENABLED, True)

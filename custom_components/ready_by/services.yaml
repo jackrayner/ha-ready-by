@@ -35,6 +35,10 @@ set_daily:
       required: false
       selector:
         boolean:
+    off_at_ready_by:
+      required: false
+      selector:
+        boolean:
     target:
       required: false
       example: 38

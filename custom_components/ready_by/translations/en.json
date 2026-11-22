@@ -76,6 +76,9 @@
       },
       "daily_enabled": {
         "name": "Daily schedule"
+      },
+      "daily_off_at_ready_by": {
+        "name": "Turn off at daily ready-by"
       }
     },
     "sensor": {
@@ -167,6 +170,10 @@
         "enabled": {
           "name": "Enabled",
           "description": "Turn the daily schedule on or off."
+        },
+        "off_at_ready_by": {
+          "name": "Turn off at ready-by",
+          "description": "Turn the heater off at the daily ready-by time instead of keeping it on for the hold period, for example when a cheap electricity rate ends then."
         },
         "target": {
           "name": "Target",
