@@ -169,6 +169,9 @@ class ReadyByController:
 
     async def async_setup(self) -> None:
         self.data = await self._store.async_load()
+        if self.data.daily_target is None:
+            # The daily schedule used the shared target before it had its own.
+            self.data.daily_target = self.data.target
         if self.data.session_hours is None:
             # Carry the old hold_hours option over before the options drop it.
             self.data.session_hours = self.session_hours
@@ -300,13 +303,37 @@ class ReadyByController:
         self.data.active = None
         self.data.active_ready_by = None
 
+    @property
+    def daily_target(self) -> float:
+        return self.data.target if self.data.daily_target is None else self.data.daily_target
+
+    def target_for(self, schedule: str | None) -> float:
+        """The target temperature a run of this schedule heats to."""
+        return self.daily_target if schedule == SCHEDULE_DAILY else self.data.target
+
+    @property
+    def active_target(self) -> float:
+        return self.target_for(self.data.active)
+
     async def async_set_target(self, target: float, *, replan: bool = True) -> None:
+        """Set the one-off target temperature."""
         self.data.target = target
+        await self._async_target_changed(SCHEDULE_ONE_OFF, replan=replan)
+
+    async def async_set_daily_target(self, target: float, *, replan: bool = True) -> None:
+        self.data.daily_target = target
+        await self._async_target_changed(SCHEDULE_DAILY, replan=replan)
+
+    async def _async_target_changed(self, schedule: str, *, replan: bool) -> None:
         self._store.async_schedule_save()
-        if self.data.phase in (PHASE_HEATING, PHASE_HOLDING):
-            await self._async_call_climate(SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: target})
+        if self._running and self.data.active == schedule:
+            await self._async_call_climate(
+                SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: self.active_target}
+            )
         if replan:
             await self.async_replan()
+        else:
+            self._notify()
 
     async def async_import(
         self, sessions: list[Session], cooling: list[CoolingSample]
@@ -466,7 +493,7 @@ class ReadyByController:
             now,
             ready_by - self.buffer,
             water,
-            self.data.target,
+            self.active_target,
             outside_at,
             self.model,
             self.cooling_k,
@@ -494,9 +521,14 @@ class ReadyByController:
                 and upcoming[0][1] < data.active_ready_by
             ):
                 # An earlier ready-by was set while heating: this run now serves it.
+                previous_target = self.active_target
                 data.active, data.active_ready_by = upcoming[0]
                 self._schedule_ready_and_end()
                 self._store.async_schedule_save()
+                if self.active_target != previous_target:
+                    await self._async_call_climate(
+                        SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: self.active_target}
+                    )
             self.plan = self._progress_plan(now)
             self._notify()
             return
@@ -532,7 +564,7 @@ class ReadyByController:
         if water is None or outside_at is None or ready_by is None:
             return None
         ready = simulate_heating(
-            now, water, self.data.target, outside_at, self.model, mode=self.tracker.mode
+            now, water, self.active_target, outside_at, self.model, mode=self.tracker.mode
         )
         return Plan(
             start=self.data.started_at or now,
@@ -552,7 +584,7 @@ class ReadyByController:
         self.data.started_at = dt_util.utcnow()
         await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.HEAT})
         await self._async_call_climate(
-            SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: self.data.target}
+            SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: self.active_target}
         )
         event_data = self._event_data(plan)
         self.hass.bus.async_fire(EVENT_HEATING_STARTED, event_data)
@@ -661,7 +693,7 @@ class ReadyByController:
             "ready_by": (
                 self.data.active_ready_by.isoformat() if self.data.active_ready_by else None
             ),
-            "target": self.data.target,
+            "target": self.active_target,
             "expected_ready": (
                 plan.expected_ready.isoformat() if plan and plan.expected_ready else None
             ),

@@ -65,7 +65,10 @@
     },
     "number": {
       "target_temperature": {
-        "name": "Target temperature"
+        "name": "One-off target temperature"
+      },
+      "daily_target_temperature": {
+        "name": "Daily target temperature"
       },
       "session_length": {
         "name": "Session length"
@@ -157,13 +160,13 @@
         },
         "target": {
           "name": "Target",
-          "description": "Target temperature. Leave empty to keep the current one."
+          "description": "One-off target temperature. Leave empty to keep the current one."
         }
       }
     },
     "set_daily": {
       "name": "Set daily ready-by",
-      "description": "Sets the daily ready-by time, turns the daily schedule on or off, or changes the target.",
+      "description": "Sets the daily ready-by time or target, turns the daily schedule on or off, or sets whether it turns the heater off at the ready-by time.",
       "fields": {
         "config_entry_id": {
           "name": "Entry",
@@ -183,7 +186,7 @@
         },
         "target": {
           "name": "Target",
-          "description": "Target temperature, shared with the one-off schedule."
+          "description": "Target temperature for daily runs."
         }
       }
     },

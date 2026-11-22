@@ -118,7 +118,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def set_daily(call: ServiceCall) -> None:
         controller = controller_for(call)
         if ATTR_TARGET in call.data:
-            await controller.async_set_target(call.data[ATTR_TARGET], replan=False)
+            await controller.async_set_daily_target(call.data[ATTR_TARGET], replan=False)
         if ATTR_OFF_AT_READY_BY in call.data:
             await controller.async_set_daily_off_at_ready_by(call.data[ATTR_OFF_AT_READY_BY])
         if ATTR_TIME in call.data:
