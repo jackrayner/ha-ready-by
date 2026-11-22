@@ -7,7 +7,6 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.ready_by.const import (
     CONF_POWER,
-    CONF_POWER_THRESHOLD,
     PHASE_HEATING,
     PHASE_SCHEDULED,
 )
@@ -124,8 +123,7 @@ async def test_changing_sources_relearns(hass: HomeAssistant):
     entry.runtime_data.data.history_imported = True
 
     hass.config_entries.async_update_entry(
-        entry,
-        options={**entry.options, CONF_POWER: "sensor.heat_pump_power", CONF_POWER_THRESHOLD: 100},
+        entry, data={**entry.data, CONF_POWER: "sensor.heat_pump_power"}
     )
     await hass.async_block_till_done()
     controller = entry.runtime_data

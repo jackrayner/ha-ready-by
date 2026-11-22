@@ -95,6 +95,8 @@ def make_entry(
         data[CONF_WATER] = water
     if weather:
         data[CONF_WEATHER] = weather
+    if power:
+        data[CONF_POWER] = power
     return MockConfigEntry(
         domain=DOMAIN,
         title="Hot tub",
@@ -105,7 +107,7 @@ def make_entry(
             CONF_SEED_RATE: seed_rate,
             CONF_HOLD_HOURS: hold_hours,
             CONF_IMPORT_HISTORY: False,
-            **({CONF_POWER: power, CONF_POWER_THRESHOLD: 100.0} if power else {}),
+            CONF_POWER_THRESHOLD: 100.0,
         },
     )
 
