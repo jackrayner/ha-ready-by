@@ -104,3 +104,11 @@ def test_power_rows_in_kilowatts():
     ]
     events = backfill.build_events([], [], [], rows_power, 100)
     assert [e[2] for e in events if e[1] == "heating"] == [False, True]
+
+
+def test_climate_rows_carry_mode():
+    rows_climate = [
+        {"time": T0, "state": "heat", "hvac_action_str": "heating", "preset_mode_str": "boost"}
+    ]
+    events = backfill.build_events(rows_climate, [], [])
+    assert (events[0][1], events[0][2]) == ("mode", "boost")

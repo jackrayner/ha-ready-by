@@ -115,6 +115,8 @@ def build_events(
 
     events: list[tuple[datetime, str, Any]] = []
     for row in climate_rows:
+        if row.get("state") not in (None, "unknown", "unavailable"):
+            events.append((when(row), "mode", row.get("preset_mode_str")))
         if water_rows is None:
             events.append((when(row), "water", _float(row.get("current_temperature"))))
         if power_rows is None:
