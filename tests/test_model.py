@@ -270,3 +270,58 @@ def test_detect_starts_phase_at_first_water_reading():
         ]
     )
     assert sessions[0].start == T0 + h
+
+
+def test_detect_merges_short_stop():
+    m = timedelta(minutes=1)
+    sessions, _ = detect(
+        [
+            (T0, "outside", 5.0),
+            (T0, "water", 30.0),
+            (T0, "heating", True),
+            (T0 + 50 * m, "heating", False),
+            (T0 + 55 * m, "heating", True),
+            (T0 + 120 * m, "water", 33.0),
+            (T0 + 120 * m, "heating", False),
+        ]
+    )
+    assert len(sessions) == 1
+    assert (sessions[0].start, sessions[0].end) == (T0, T0 + 120 * m)
+
+
+def test_detect_long_stop_ends_session_at_stop_time():
+    m = timedelta(minutes=1)
+    sessions, cooling = detect(
+        [
+            (T0, "outside", 5.0),
+            (T0, "water", 30.0),
+            (T0, "heating", True),
+            (T0 + 90 * m, "water", 33.0),
+            (T0 + 90 * m, "heating", False),
+            (T0 + 300 * m, "water", 32.0),
+            (T0 + 300 * m, "heating", True),
+        ]
+    )
+    assert sessions[0].end == T0 + 90 * m
+    assert sessions[0].water_end == 33.0
+    assert (cooling[0].start, cooling[0].end) == (T0 + 90 * m, T0 + 300 * m)
+    assert (cooling[0].water_start, cooling[0].water_end) == (33.0, 32.0)
+
+
+def test_session_ends_when_water_peaks():
+    """Holding the setpoint after the water is hot isn't heating time."""
+    h = timedelta(hours=1)
+    sessions, _ = detect(
+        [
+            (T0, "outside", 5.0),
+            (T0, "water", 34.0),
+            (T0, "heating", True),
+            (T0 + h, "water", 36.0),
+            (T0 + 2 * h, "water", 38.0),
+            (T0 + 3 * h, "water", 38.0),
+            (T0 + 5 * h, "water", 37.5),
+            (T0 + 5 * h, "heating", False),
+        ]
+    )
+    assert (sessions[0].end, sessions[0].water_end) == (T0 + 2 * h, 38.0)
+    assert sessions[0].rate == 2.0

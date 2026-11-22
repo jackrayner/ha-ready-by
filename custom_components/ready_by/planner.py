@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -31,6 +31,8 @@ from .const import (
     CONF_HOLD_HOURS,
     CONF_IMPORT_HISTORY,
     CONF_OUTSIDE,
+    CONF_POWER,
+    CONF_POWER_THRESHOLD,
     CONF_SEED_RATE,
     CONF_WATER,
     CONF_WEATHER,
@@ -38,6 +40,7 @@ from .const import (
     DEFAULT_HOLD_HOURS,
     DEFAULT_IMPORT_HISTORY,
     DEFAULT_NAME,
+    DEFAULT_POWER_THRESHOLD,
     DEFAULT_SEED_RATE,
     EVENT_HEATING_STARTED,
     EVENT_LATE,
@@ -48,6 +51,8 @@ from .const import (
     PHASE_IDLE,
     PHASE_SCHEDULED,
     REPLAN_COOLDOWN_SECONDS,
+    SCHEDULE_DAILY,
+    SCHEDULE_ONE_OFF,
 )
 from .history import async_load_history
 from .model import (
@@ -63,7 +68,7 @@ from .model import (
     simulate_heating,
 )
 from .store import ReadyByData, ReadyByStore
-from .tracker import SessionTracker
+from .tracker import SessionTracker, Sources
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,9 +93,7 @@ class ReadyByController:
         self._forecast_unsub: CALLBACK_TYPE | None = None
         self.tracker = SessionTracker(
             hass,
-            self.climate_id,
-            self.water_id,
-            self.outside_id,
+            self.sources,
             on_sample=self._on_sample,
             on_change=self._on_inputs_changed,
         )
@@ -119,6 +122,18 @@ class ReadyByController:
         return self.entry.data[CONF_OUTSIDE]
 
     @property
+    def sources(self) -> Sources:
+        return Sources(
+            climate_id=self.climate_id,
+            outside_id=self.outside_id,
+            water_id=self.water_id,
+            power_id=self.entry.data.get(CONF_POWER) or None,
+            power_threshold=float(
+                self.entry.options.get(CONF_POWER_THRESHOLD, DEFAULT_POWER_THRESHOLD)
+            ),
+        )
+
+    @property
     def weather_id(self) -> str | None:
         return self.entry.data.get(CONF_WEATHER) or None
 
@@ -145,6 +160,7 @@ class ReadyByController:
 
     async def async_setup(self) -> None:
         self.data = await self._store.async_load()
+        self._check_sources()
         self._refit()
         self.tracker.async_start()
         if self.weather_id:
@@ -188,26 +204,54 @@ class ReadyByController:
             update()
 
     async def async_set_enabled(self, enabled: bool) -> None:
+        """Turn the one-off ready-by on or off."""
         self.data.enabled = enabled
         if not enabled:
-            # Leave the heat pump as it is; only stop managing it.
-            self._cancel_all_timers()
-            self.data.phase = PHASE_IDLE
-            self.data.started_at = None
+            self._stop_managing(SCHEDULE_ONE_OFF)
         self._store.async_schedule_save()
         await self.async_replan()
 
     async def async_set_ready_by(self, ready_by: datetime, target: float | None = None) -> None:
+        """Set the one-off ready-by time and turn it on."""
         self.data.ready_by = dt_util.as_utc(ready_by)
         if target is not None:
             await self.async_set_target(target, replan=False)
         self.data.enabled = True
-        if self.data.phase == PHASE_HOLDING:
+        if self.data.active == SCHEDULE_ONE_OFF and self._running:
+            self.data.active_ready_by = self.data.ready_by
             self.data.phase = PHASE_HEATING
-        if self.data.phase == PHASE_HEATING:
             self._schedule_ready_and_end()
         self._store.async_schedule_save()
         await self.async_replan()
+
+    async def async_set_daily_enabled(self, enabled: bool) -> None:
+        self.data.daily_enabled = enabled
+        if not enabled:
+            self._stop_managing(SCHEDULE_DAILY)
+        self._store.async_schedule_save()
+        await self.async_replan()
+
+    async def async_set_daily_time(self, value: time, *, enable: bool = True) -> None:
+        """Set the daily ready-by time; by default this also turns the daily schedule on."""
+        self.data.daily_time = value
+        if enable:
+            self.data.daily_enabled = True
+        if self.data.active == SCHEDULE_DAILY and self.data.phase == PHASE_HEATING:
+            # Move today's running occurrence to the new time.
+            self.data.active_ready_by = self._daily_at(dt_util.utcnow(), value, after=False)
+            self._schedule_ready_and_end()
+        self._store.async_schedule_save()
+        await self.async_replan()
+
+    def _stop_managing(self, schedule: str) -> None:
+        """Stop a running or planned run of this schedule. The heater is left as it is."""
+        if self.data.active != schedule:
+            return
+        self._cancel_all_timers()
+        self.data.phase = PHASE_IDLE
+        self.data.started_at = None
+        self.data.active = None
+        self.data.active_ready_by = None
 
     async def async_set_target(self, target: float, *, replan: bool = True) -> None:
         self.data.target = target
@@ -238,9 +282,7 @@ class ReadyByController:
 
     async def _async_import_history(self) -> None:
         try:
-            sessions, cooling = await async_load_history(
-                self.hass, self.climate_id, self.water_id, self.outside_id
-            )
+            sessions, cooling = await async_load_history(self.hass, self.sources)
         except Exception:  # noqa: BLE001 - a failed import must not break the integration
             _LOGGER.warning("Could not import recorder history for %s", self.name, exc_info=True)
             return
@@ -261,6 +303,21 @@ class ReadyByController:
     @callback
     def _on_inputs_changed(self) -> None:
         self._debouncer.async_schedule_call()
+
+    def _check_sources(self) -> None:
+        """Forget data learned from different entities, so it can be relearned."""
+        key = repr(self.sources)
+        if self.data.sources_key is not None and self.data.sources_key != key:
+            _LOGGER.info(
+                "Sources for %s changed; discarding %d learned sessions to relearn them",
+                self.name,
+                len(self.data.sessions),
+            )
+            self.data.sessions = []
+            self.data.cooling = []
+            self.data.history_imported = False
+        self.data.sources_key = key
+        self._store.async_schedule_save()
 
     def _refit(self) -> None:
         self.model = fit_heating(self.data.sessions, self.seed_rate)
@@ -306,46 +363,96 @@ class ReadyByController:
             return None
         return outside_temp_function(points, fallback=points[0][1])
 
-    async def async_replan(self) -> None:
-        now = dt_util.utcnow()
-        self._cancel(start=True)
-        data = self.data
-        if not data.enabled or data.ready_by is None:
-            self.plan = None
-            self._notify()
-            return
+    @property
+    def _running(self) -> bool:
+        return self.data.phase in (PHASE_HEATING, PHASE_HOLDING)
 
+    def _daily_at(self, now: datetime, value: time, *, after: bool = True) -> datetime:
+        """Today's occurrence of a daily time in local time, or tomorrow's if it has passed."""
+        local = dt_util.as_local(now)
+        occurrence = datetime.combine(local.date(), value, tzinfo=local.tzinfo)
+        occurrence = dt_util.as_local(occurrence)
+        if after and occurrence <= local:
+            occurrence = datetime.combine(
+                local.date() + timedelta(days=1), value, tzinfo=local.tzinfo
+            )
+        return dt_util.as_utc(occurrence)
+
+    def upcoming(self, now: datetime) -> list[tuple[str, datetime]]:
+        """Enabled schedules' next ready-by times, earliest first."""
+        found: list[tuple[str, datetime]] = []
+        data = self.data
+        if data.enabled and data.ready_by is not None and data.ready_by > now:
+            found.append((SCHEDULE_ONE_OFF, data.ready_by))
+        if data.daily_enabled and data.daily_time is not None:
+            found.append((SCHEDULE_DAILY, self._daily_at(now, data.daily_time)))
+        return sorted(found, key=lambda item: item[1])
+
+    @property
+    def next_ready_by(self) -> tuple[str, datetime] | None:
+        if self.data.active and self.data.active_ready_by and self.data.phase != PHASE_IDLE:
+            return self.data.active, self.data.active_ready_by
+        upcoming = self.upcoming(dt_util.utcnow())
+        return upcoming[0] if upcoming else None
+
+    def _make_plan(self, now: datetime, ready_by: datetime) -> Plan | None:
         water = self.tracker.water
         outside_at = self.outside_at(now)
-
-        if data.phase in (PHASE_HEATING, PHASE_HOLDING):
-            self.plan = self._progress_plan(now, water, outside_at)
-            self._notify()
-            return
-
-        if data.ready_by <= now:
-            # The ready-by time passed without heating starting (e.g. HA was down).
-            data.enabled = False
-            data.phase = PHASE_IDLE
-            self.plan = None
-            self._store.async_schedule_save()
-            self._notify()
-            return
-
         if water is None or outside_at is None:
-            self.plan = None
-            self._notify()
-            return
-
-        self.plan = plan_heating(
+            return None
+        return plan_heating(
             now,
-            data.ready_by - self.buffer,
+            ready_by - self.buffer,
             water,
-            data.target,
+            self.data.target,
             outside_at,
             self.model,
             self.cooling_k,
         )
+
+    async def async_replan(self) -> None:
+        now = dt_util.utcnow()
+        self._cancel(start=True)
+        data = self.data
+
+        if data.enabled and data.ready_by is not None and data.ready_by <= now:
+            if not (self._running and data.active == SCHEDULE_ONE_OFF):
+                # The one-off time passed without a run (e.g. HA was down).
+                data.enabled = False
+                self._store.async_schedule_save()
+
+        upcoming = self.upcoming(now)
+
+        if self._running:
+            if (
+                data.phase == PHASE_HEATING
+                and upcoming
+                and data.active_ready_by is not None
+                and upcoming[0][1] < data.active_ready_by
+            ):
+                # An earlier ready-by was set while heating: this run now serves it.
+                data.active, data.active_ready_by = upcoming[0]
+                self._schedule_ready_and_end()
+                self._store.async_schedule_save()
+            self.plan = self._progress_plan(now)
+            self._notify()
+            return
+
+        if not upcoming:
+            data.phase = PHASE_IDLE
+            data.active = None
+            data.active_ready_by = None
+            self.plan = None
+            self._notify()
+            return
+
+        data.active, data.active_ready_by = upcoming[0]
+        self.plan = self._make_plan(now, data.active_ready_by)
+        if self.plan is None:
+            data.phase = PHASE_IDLE
+            self._notify()
+            return
+
         data.phase = PHASE_SCHEDULED
         if self.plan.start <= now:
             await self._async_start_heating()
@@ -355,18 +462,18 @@ class ReadyByController:
         )
         self._notify()
 
-    def _progress_plan(
-        self, now: datetime, water: float | None, outside_at: OutsideTemp | None
-    ) -> Plan | None:
-        started = self.data.started_at or now
-        if water is None or outside_at is None or self.data.ready_by is None:
+    def _progress_plan(self, now: datetime) -> Plan | None:
+        water = self.tracker.water
+        outside_at = self.outside_at(now)
+        ready_by = self.data.active_ready_by
+        if water is None or outside_at is None or ready_by is None:
             return None
         ready = simulate_heating(now, water, self.data.target, outside_at, self.model)
         return Plan(
-            start=started,
+            start=self.data.started_at or now,
             expected_ready=ready,
             water_at_start=water,
-            on_time=ready is not None and ready <= self.data.ready_by,
+            on_time=ready is not None and ready <= ready_by,
         )
 
     async def _async_start_fired(self, _now: datetime) -> None:
@@ -392,7 +499,7 @@ class ReadyByController:
 
     def _schedule_ready_and_end(self) -> None:
         self._cancel(ready=True, end=True)
-        ready_by = self.data.ready_by
+        ready_by = self.data.active_ready_by
         if ready_by is None:
             return
         if self.data.phase == PHASE_HEATING:
@@ -405,13 +512,21 @@ class ReadyByController:
             )
 
     def _resume(self) -> None:
-        """Pick a heating run back up after a restart."""
-        if not self.data.enabled:
-            self.data.phase = PHASE_IDLE
-        elif self.data.phase == PHASE_SCHEDULED:
-            self.data.phase = PHASE_IDLE
-        elif self.data.phase in (PHASE_HEATING, PHASE_HOLDING):
-            self._schedule_ready_and_end()
+        """Pick a run back up after a restart."""
+        data = self.data
+        if data.phase == PHASE_SCHEDULED:
+            data.phase = PHASE_IDLE
+        if not self._running:
+            return
+        if data.active is None:
+            # Stored by a version without schedules: the run was the one-off.
+            data.active, data.active_ready_by = SCHEDULE_ONE_OFF, data.ready_by
+        still_on = data.enabled if data.active == SCHEDULE_ONE_OFF else data.daily_enabled
+        if not still_on or data.active_ready_by is None:
+            data.phase = PHASE_IDLE
+            data.active = None
+            return
+        self._schedule_ready_and_end()
 
     async def _async_ready_fired(self, _now: datetime) -> None:
         self._ready_unsub = None
@@ -425,17 +540,27 @@ class ReadyByController:
             self._store.async_schedule_save()
             await self.async_replan()
         else:
-            await self._async_finish()
+            await self._async_finish(turn_off=False)
 
     async def _async_end_fired(self, _now: datetime) -> None:
         self._end_unsub = None
-        await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
-        await self._async_finish()
+        await self._async_finish(turn_off=True)
 
-    async def _async_finish(self) -> None:
-        self.data.enabled = False
-        self.data.phase = PHASE_IDLE
-        self.data.started_at = None
+    async def _async_finish(self, *, turn_off: bool) -> None:
+        data = self.data
+        if data.active == SCHEDULE_ONE_OFF:
+            data.enabled = False
+        data.phase = PHASE_IDLE
+        data.started_at = None
+        data.active = None
+        data.active_ready_by = None
+        if turn_off:
+            now = dt_util.utcnow()
+            upcoming = self.upcoming(now)
+            follow_on = self._make_plan(now, upcoming[0][1]) if upcoming else None
+            # Don't switch off only to switch straight back on for the next run.
+            if follow_on is None or follow_on.start > now + timedelta(minutes=5):
+                await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
         self._store.async_schedule_save()
         await self.async_replan()
 
@@ -454,7 +579,10 @@ class ReadyByController:
         return {
             "config_entry_id": self.entry.entry_id,
             "name": self.name,
-            "ready_by": self.data.ready_by.isoformat() if self.data.ready_by else None,
+            "schedule": self.data.active,
+            "ready_by": (
+                self.data.active_ready_by.isoformat() if self.data.active_ready_by else None
+            ),
             "target": self.data.target,
             "expected_ready": (
                 plan.expected_ready.isoformat() if plan and plan.expected_ready else None

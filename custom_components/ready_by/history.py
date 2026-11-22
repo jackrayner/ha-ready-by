@@ -11,13 +11,13 @@ from homeassistant.util import dt as dt_util
 
 from .const import HISTORY_DAYS
 from .model import CoolingSample, Session, detect
-from .tracker import events_from_history
+from .tracker import Sources, events_from_history
 
 
 async def async_load_history(
-    hass: HomeAssistant, climate_id: str, water_id: str | None, outside_id: str
+    hass: HomeAssistant, sources: Sources
 ) -> tuple[list[Session], list[CoolingSample]]:
-    entity_ids = [e for e in (climate_id, water_id, outside_id) if e]
+    entity_ids = sources.entity_ids
     start = dt_util.utcnow() - timedelta(days=HISTORY_DAYS)
     # significant_changes_only=False keeps attribute-only updates such as hvac_action.
     by_entity = await get_instance(hass).async_add_executor_job(
@@ -30,4 +30,4 @@ async def async_load_history(
         )
     )
     states = [s for s in chain.from_iterable(by_entity.values()) if isinstance(s, State)]
-    return detect(events_from_history(states, climate_id, water_id, outside_id))
+    return detect(events_from_history(states, sources))

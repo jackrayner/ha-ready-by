@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -33,6 +33,11 @@ class ReadyByData:
     phase: str = PHASE_IDLE
     started_at: datetime | None = None
     history_imported: bool = False
+    sources_key: str | None = None
+    daily_enabled: bool = False
+    daily_time: time | None = None
+    active: str | None = None
+    active_ready_by: datetime | None = None
 
     def add_sessions(self, sessions: list[Session]) -> int:
         """Add sessions not already known (by start time); return how many were added."""
@@ -57,6 +62,11 @@ class ReadyByData:
             "phase": self.phase,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "history_imported": self.history_imported,
+            "sources_key": self.sources_key,
+            "daily_enabled": self.daily_enabled,
+            "daily_time": self.daily_time.isoformat() if self.daily_time else None,
+            "active": self.active,
+            "active_ready_by": self.active_ready_by.isoformat() if self.active_ready_by else None,
         }
 
     @classmethod
@@ -72,6 +82,15 @@ class ReadyByData:
                 dt_util.parse_datetime(raw["started_at"]) if raw.get("started_at") else None
             ),
             history_imported=bool(raw.get("history_imported", False)),
+            sources_key=raw.get("sources_key"),
+            daily_enabled=bool(raw.get("daily_enabled", False)),
+            daily_time=dt_util.parse_time(raw["daily_time"]) if raw.get("daily_time") else None,
+            active=raw.get("active"),
+            active_ready_by=(
+                dt_util.parse_datetime(raw["active_ready_by"])
+                if raw.get("active_ready_by")
+                else None
+            ),
         )
 
 

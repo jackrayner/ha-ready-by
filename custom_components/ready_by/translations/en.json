@@ -9,11 +9,13 @@
           "climate_entity": "Heater (climate entity)",
           "water_sensor": "Water temperature sensor",
           "outside_sensor": "Outside temperature sensor",
-          "weather_entity": "Weather forecast"
+          "weather_entity": "Weather forecast",
+          "power_sensor": "Heater power sensor"
         },
         "data_description": {
           "water_sensor": "Leave empty to use the heater's own current temperature.",
-          "weather_entity": "Optional. Its hourly forecast is used for the outside temperature while heating."
+          "weather_entity": "Optional. Its hourly forecast is used for the outside temperature while heating.",
+          "power_sensor": "Optional. When set, the heater counts as heating while this reads above the power threshold, instead of using the climate entity. More accurate for heat pumps that don't report hvac_action."
         }
       }
     },
@@ -25,31 +27,56 @@
     "step": {
       "init": {
         "data": {
+          "climate_entity": "Heater (climate entity)",
+          "water_sensor": "Water temperature sensor",
+          "outside_sensor": "Outside temperature sensor",
+          "weather_entity": "Weather forecast",
+          "power_sensor": "Heater power sensor",
+          "power_threshold": "Heating power threshold",
           "buffer_minutes": "Safety buffer",
           "seed_rate": "Starting heating rate",
           "hold_hours": "Keep heating after the ready-by time",
           "import_history": "Learn from recorder history on first setup"
         },
         "data_description": {
+          "water_sensor": "Leave empty to use the heater's own current temperature.",
+          "weather_entity": "Optional. Its hourly forecast is used for the outside temperature while heating.",
+          "power_sensor": "Optional. When set, the heater counts as heating while this reads above the power threshold, instead of using the climate entity. More accurate for heat pumps that don't report hvac_action.",
+          "power_threshold": "Power above which the heater counts as heating.",
           "buffer_minutes": "Aim to reach the target this long before the ready-by time.",
           "seed_rate": "Used until at least 3 heating sessions have been learned.",
           "hold_hours": "After this, the heater is turned off. 0 leaves it on."
-        }
+        },
+        "description": "Changing the heater, the water, outside or power sensor, or the power threshold discards learned sessions and relearns them from recorder history."
       }
+    },
+    "error": {
+      "already_configured": "Another Ready By entry already uses this heater."
     }
   },
   "entity": {
     "binary_sensor": {
-      "on_time": { "name": "On time" }
+      "on_time": {
+        "name": "On time"
+      }
     },
     "datetime": {
-      "ready_by": { "name": "Ready by" }
+      "ready_by": {
+        "name": "One-off ready by"
+      }
     },
     "number": {
-      "target_temperature": { "name": "Target temperature" }
+      "target_temperature": {
+        "name": "Target temperature"
+      }
     },
     "switch": {
-      "enabled": { "name": "Ready-by schedule" }
+      "enabled": {
+        "name": "One-off schedule"
+      },
+      "daily_enabled": {
+        "name": "Daily schedule"
+      }
     },
     "sensor": {
       "status": {
@@ -61,13 +88,44 @@
           "holding": "Holding"
         }
       },
-      "start_time": { "name": "Start time" },
-      "expected_ready": { "name": "Expected ready" },
-      "heat_duration": { "name": "Heating time needed" },
-      "heating_rate": { "name": "Heating rate" },
-      "sessions_learned": { "name": "Sessions learned" },
-      "fit_r2": { "name": "Model fit (R²)" },
-      "cooling_k": { "name": "Cooling coefficient" }
+      "next_ready_by": {
+        "name": "Next ready by",
+        "state_attributes": {
+          "schedule": {
+            "name": "Schedule",
+            "state": {
+              "one_off": "One-off",
+              "daily": "Daily"
+            }
+          }
+        }
+      },
+      "start_time": {
+        "name": "Start time"
+      },
+      "expected_ready": {
+        "name": "Expected ready"
+      },
+      "heat_duration": {
+        "name": "Heating time needed"
+      },
+      "heating_rate": {
+        "name": "Heating rate"
+      },
+      "sessions_learned": {
+        "name": "Sessions learned"
+      },
+      "fit_r2": {
+        "name": "Model fit (R²)"
+      },
+      "cooling_k": {
+        "name": "Cooling coefficient"
+      }
+    },
+    "time": {
+      "daily_ready_by": {
+        "name": "Daily ready by"
+      }
     }
   },
   "exceptions": {
@@ -77,28 +135,71 @@
   },
   "services": {
     "set_ready_by": {
-      "name": "Set ready-by time",
-      "description": "Sets when the water should be hot and turns the schedule on.",
+      "name": "Set one-off ready-by",
+      "description": "Sets a one-off time the water should be hot by, and turns the one-off schedule on. It turns itself off after the run.",
       "fields": {
-        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to schedule." },
-        "ready_by": { "name": "Ready by", "description": "When the target should be reached." },
-        "target": { "name": "Target", "description": "Target temperature. Leave empty to keep the current one." }
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to schedule."
+        },
+        "ready_by": {
+          "name": "Ready by",
+          "description": "When the target should be reached."
+        },
+        "target": {
+          "name": "Target",
+          "description": "Target temperature. Leave empty to keep the current one."
+        }
+      }
+    },
+    "set_daily": {
+      "name": "Set daily ready-by",
+      "description": "Sets the daily ready-by time, turns the daily schedule on or off, or changes the target.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to schedule."
+        },
+        "time": {
+          "name": "Time",
+          "description": "When the water should be hot each day. Setting it turns the daily schedule on unless enabled is false."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Turn the daily schedule on or off."
+        },
+        "target": {
+          "name": "Target",
+          "description": "Target temperature, shared with the one-off schedule."
+        }
       }
     },
     "import_sessions": {
       "name": "Import sessions",
       "description": "Adds past heating sessions and cooling samples to the model, for example from scripts/influx_backfill.py.",
       "fields": {
-        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to import into." },
-        "sessions": { "name": "Sessions", "description": "List of heating sessions (start, end, water_start, water_end, outside_avg)." },
-        "cooling": { "name": "Cooling samples", "description": "List of idle periods in the same format." }
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to import into."
+        },
+        "sessions": {
+          "name": "Sessions",
+          "description": "List of heating sessions (start, end, water_start, water_end, outside_avg)."
+        },
+        "cooling": {
+          "name": "Cooling samples",
+          "description": "List of idle periods in the same format."
+        }
       }
     },
     "reset_model": {
       "name": "Reset model",
       "description": "Forgets every learned session and cooling sample.",
       "fields": {
-        "config_entry_id": { "name": "Entry", "description": "The Ready By entry to reset." }
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Ready By entry to reset."
+        }
       }
     }
   }

@@ -12,7 +12,7 @@
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jackrayner&repository=ha-ready-by&category=integration)
 [![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ready_by)
 
-A Home Assistant custom integration that turns a heater on at the right time so the water (or room) is up to temperature by a time you choose. It was built for a hot tub with an air-source heat pump, but it works with any `climate` entity.
+A Home Assistant custom integration that turns a heater on at the right time so the water (or room) is up to temperature by a time you choose. It was built for a hot tub with an air-source heat pump, but it works with any `climate` entity. Set a daily time, a one-off time, or both.
 
 It learns from every heating run how fast the heater warms the water at different outside and water temperatures, and how fast the water cools while the heater is off. From that, the current water temperature and the hourly weather forecast, it works out the latest moment it can switch on and still be ready in time.
 
@@ -22,7 +22,7 @@ It learns from every heating run how fast the heater warms the water at differen
 - **Planning.** It simulates the water in 5-minute steps: cooling from now until a candidate start time, then heating, using the outside sensor now and the hourly forecast after that. A binary search finds the latest start that still reaches the target by the ready-by time (minus an optional safety buffer). It plans again when the temperatures, forecast, target or ready-by time change.
 - **Control.** At the start time it sets the climate entity to `heat` at the target temperature. After the ready-by time it keeps heating for a hold period you choose, then turns the climate entity off. If there isn't enough time, it starts immediately and marks the plan as late.
 
-Heating is detected from the climate entity's `hvac_action`. If the entity doesn't report one, it's treated as heating whenever it's in a heating mode and below its setpoint.
+Heating is detected from the climate entity's `hvac_action`. If the entity doesn't report one, it's treated as heating whenever it's in a heating mode and below its setpoint. That guess is rough, so if the heater has a power sensor, set it in the options: the heater then counts as heating while its power is above a threshold. Stops shorter than 10 minutes, such as a heat pump's defrost cycle, don't split a session. A session ends when the water first reaches its highest temperature, so time spent holding the setpoint doesn't drag the learned rate down. Power readings in kW (or mW/MW) are converted to watts.
 
 Temperatures are assumed to be in °C.
 
@@ -48,14 +48,28 @@ Click **Add integration** above, or go to **Settings → Devices & services → 
 
 On first setup it learns from whatever the recorder still holds (10 days by default). To use longer history from InfluxDB, see [Importing history](#importing-history).
 
+## Schedules
+
+There are two schedules, and they can be used together:
+
+- **Daily**: a time of day the water should be hot by, every day. Use it in place of a timer automation that switches the heater on and off.
+- **One-off**: a single date and time, for example for an evening in the tub. It turns itself off once that run is over.
+
+Whichever ready-by comes next is planned first. After its hold period the heater is turned off, unless the next run would need it back on within 5 minutes, in which case it keeps going. If you set a one-off time that's earlier than a daily run that is already heating, that run serves the one-off instead. Turning a schedule off stops managing its run but leaves the heater as it is.
+
+Ready By plans by the clock, not by electricity price. If your current timer automation follows a cheap overnight rate, a daily ready-by may start heating outside that window.
+
 ## Entities
 
 | Entity | What it does |
 | --- | --- |
-| `datetime` Ready by | When the water should be at the target. Setting it turns the schedule on. |
-| `number` Target temperature | The temperature to reach. |
-| `switch` Ready-by schedule | Turns scheduling on or off. Turning it off leaves the heater as it is. |
+| `time` Daily ready by | When the water should be hot every day. Setting it turns the daily schedule on. |
+| `switch` Daily schedule | Turns the daily schedule on or off. |
+| `datetime` One-off ready by | A single time the water should be hot by. Setting it turns the one-off schedule on. |
+| `switch` One-off schedule | Turns the one-off schedule on or off. It turns itself off after its run. |
+| `number` Target temperature | The temperature to reach, shared by both schedules. |
 | `sensor` Status | `idle`, `scheduled`, `heating` or `holding`. |
+| `sensor` Next ready by | The ready-by time being worked towards; its `schedule` attribute says `daily` or `one_off`. |
 | `sensor` Start time | When heating will start (or started). |
 | `sensor` Expected ready | When the target is expected to be reached. |
 | `sensor` Heating time needed | Predicted minutes of heating. |
@@ -65,8 +79,13 @@ On first setup it learns from whatever the recorder still holds (10 days by defa
 
 ### Options
 
+Everything chosen at setup can be changed later under **Settings → Devices & services → Ready By → Configure**, along with these settings. Changing the heater, the water, outside or power sensor, or the power threshold discards learned sessions and relearns them from recorder history.
+
 | Option | Default | Meaning |
 | --- | --- | --- |
+| Heater, water, outside and weather entities | as chosen at setup | The entities Ready By reads and controls. Optional ones can be cleared. |
+| Heater power sensor | none | When set, decides when the heater is heating. |
+| Heating power threshold | 100 W | Power above which the heater counts as heating. |
 | Safety buffer | 15 min | Aim to be ready this long before the ready-by time. |
 | Starting heating rate | 1.0 °C/h | Used until 3 sessions have been learned. |
 | Keep heating after the ready-by time | 2 h | Then the heater is turned off. 0 leaves it on. |
@@ -74,7 +93,8 @@ On first setup it learns from whatever the recorder still holds (10 days by defa
 
 ## Actions and events
 
-- `ready_by.set_ready_by`: `config_entry_id`, `ready_by`, optional `target`. Sets the time and turns the schedule on.
+- `ready_by.set_ready_by`: `config_entry_id`, `ready_by`, optional `target`. Sets the one-off time and turns the one-off schedule on.
+- `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled` and `target`. Sets the daily time (which turns it on unless `enabled: false`), or turns the daily schedule on or off.
 - `ready_by.import_sessions`: `config_entry_id`, `sessions`, `cooling`. Adds past sessions; returns how many were new.
 - `ready_by.reset_model`: forgets everything learned.
 
@@ -84,7 +104,7 @@ Events, for your own notifications:
 - `ready_by_late`: heating started too late to be ready on time
 - `ready_by_ready`: the ready-by time was reached; includes `water_temperature`
 
-Each event carries `config_entry_id`, `name`, `ready_by`, `target`, `expected_ready` and `on_time`.
+Each event carries `config_entry_id`, `name`, `schedule` (`daily` or `one_off`), `ready_by`, `target`, `expected_ready` and `on_time`.
 
 ```yaml
 automation:
@@ -110,6 +130,8 @@ INFLUX_USERNAME=homeassistant INFLUX_PASSWORD=... \
   --climate climate.hot_tub --water sensor.hot_tub_water \
   --outside sensor.outside_temperature --days 365 > sessions.json
 ```
+
+If you use a power sensor in the integration, pass the same one with `--power` (and `--power-threshold`) so history is read the same way.
 
 Replace `REPLACE_WITH_ENTRY_ID` in the output with the entry's ID, then paste it into **Developer tools → Actions** for `ready_by.import_sessions` in YAML mode. Sessions already known are skipped.
 
