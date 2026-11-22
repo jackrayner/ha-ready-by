@@ -45,6 +45,7 @@ from .const import (
     EVENT_HEATING_STARTED,
     EVENT_LATE,
     EVENT_READY,
+    EVENT_SESSION_ENDED,
     FORECAST_INTERVAL,
     PHASE_HEATING,
     PHASE_HOLDING,
@@ -149,7 +150,15 @@ class ReadyByController:
 
     @property
     def hold(self) -> timedelta:
-        return timedelta(hours=self.entry.options.get(CONF_HOLD_HOURS, DEFAULT_HOLD_HOURS))
+        """Session length: how long to keep heating after the ready-by time."""
+        return timedelta(hours=self.session_hours)
+
+    @property
+    def session_hours(self) -> float:
+        if self.data.session_hours is not None:
+            return self.data.session_hours
+        # Before the session length entity, this was the hold_hours option.
+        return float(self.entry.options.get(CONF_HOLD_HOURS, DEFAULT_HOLD_HOURS))
 
     @property
     def heating_rate(self) -> float | None:
@@ -160,6 +169,9 @@ class ReadyByController:
 
     async def async_setup(self) -> None:
         self.data = await self._store.async_load()
+        if self.data.session_hours is None:
+            # Carry the old hold_hours option over before the options drop it.
+            self.data.session_hours = self.session_hours
         self._check_sources()
         self._refit()
         self.tracker.async_start()
@@ -238,6 +250,35 @@ class ReadyByController:
             self._schedule_ready_and_end()
         self._store.async_schedule_save()
         await self.async_replan()
+
+    async def async_set_session_length(self, hours: float) -> None:
+        """Set how long to keep heating after the ready-by time; 0 never turns it off."""
+        self.data.session_hours = hours
+        self._store.async_schedule_save()
+        if self.data.phase == PHASE_HOLDING and self.data.active_ready_by is not None:
+            if hours <= 0:
+                self._cancel(end=True)
+                await self._async_finish(turn_off=False)
+                return
+            if self.data.active_ready_by + self.hold <= dt_util.utcnow():
+                self._cancel(end=True)
+                await self._async_finish(turn_off=True)
+                return
+            self._schedule_ready_and_end()
+        self._notify()
+
+    async def async_end_session(self) -> None:
+        """Turn the heater off now, ending any run in progress before its scheduled end."""
+        self._cancel(ready=True, end=True)
+        if self._running:
+            await self._async_finish(turn_off=True, force=True)
+        else:
+            await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+            self.hass.bus.async_fire(
+                EVENT_SESSION_ENDED,
+                {**self._event_data(None), "reason": "manual", "heater_off": True},
+            )
+            self._notify()
 
     async def async_set_daily_off_at_ready_by(self, enabled: bool) -> None:
         self.data.daily_off_at_ready_by = enabled
@@ -402,7 +443,11 @@ class ReadyByController:
         if data.enabled and data.ready_by is not None and data.ready_by > now:
             found.append((SCHEDULE_ONE_OFF, data.ready_by))
         if data.daily_enabled and data.daily_time is not None:
-            found.append((SCHEDULE_DAILY, self._daily_at(now, data.daily_time)))
+            occurrence = self._daily_at(now, data.daily_time)
+            if data.daily_done_until is not None and occurrence <= data.daily_done_until:
+                # That day's run was already ended early; move on to the next day.
+                occurrence = self._daily_at(data.daily_done_until, data.daily_time)
+            found.append((SCHEDULE_DAILY, occurrence))
         return sorted(found, key=lambda item: item[1])
 
     @property
@@ -568,10 +613,14 @@ class ReadyByController:
         self._end_unsub = None
         await self._async_finish(turn_off=True)
 
-    async def _async_finish(self, *, turn_off: bool) -> None:
+    async def _async_finish(self, *, turn_off: bool, force: bool = False) -> None:
+        """End the active run. force is a manual end: always turn off, and say so."""
         data = self.data
+        event_data = self._event_data(self.plan)
         if data.active == SCHEDULE_ONE_OFF:
             data.enabled = False
+        elif data.active == SCHEDULE_DAILY:
+            data.daily_done_until = data.active_ready_by
         data.phase = PHASE_IDLE
         data.started_at = None
         data.active = None
@@ -580,9 +629,16 @@ class ReadyByController:
             now = dt_util.utcnow()
             upcoming = self.upcoming(now)
             follow_on = self._make_plan(now, upcoming[0][1]) if upcoming else None
-            # Don't switch off only to switch straight back on for the next run.
-            if follow_on is None or follow_on.start > now + timedelta(minutes=5):
+            # Don't switch off only to switch straight back on for the next run,
+            # unless the session was ended by hand.
+            if force or follow_on is None or follow_on.start > now + timedelta(minutes=5):
                 await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+            else:
+                turn_off = False
+        self.hass.bus.async_fire(
+            EVENT_SESSION_ENDED,
+            {**event_data, "reason": "manual" if force else "scheduled", "heater_off": turn_off},
+        )
         self._store.async_schedule_save()
         await self.async_replan()
 

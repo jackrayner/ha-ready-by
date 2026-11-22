@@ -14,7 +14,6 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_BUFFER_MINUTES,
     CONF_CLIMATE,
-    CONF_HOLD_HOURS,
     CONF_IMPORT_HISTORY,
     CONF_OUTSIDE,
     CONF_POWER,
@@ -23,7 +22,6 @@ from .const import (
     CONF_WATER,
     CONF_WEATHER,
     DEFAULT_BUFFER_MINUTES,
-    DEFAULT_HOLD_HOURS,
     DEFAULT_IMPORT_HISTORY,
     DEFAULT_NAME,
     DEFAULT_POWER_THRESHOLD,
@@ -37,7 +35,6 @@ DEFAULT_OPTIONS = {
     CONF_POWER_THRESHOLD: DEFAULT_POWER_THRESHOLD,
     CONF_BUFFER_MINUTES: DEFAULT_BUFFER_MINUTES,
     CONF_SEED_RATE: DEFAULT_SEED_RATE,
-    CONF_HOLD_HOURS: DEFAULT_HOLD_HOURS,
     CONF_IMPORT_HISTORY: DEFAULT_IMPORT_HISTORY,
 }
 
@@ -99,7 +96,6 @@ def _settings_schema(options: dict[str, Any]) -> dict[vol.Marker, Any]:
         vol.Required(CONF_SEED_RATE, default=default(CONF_SEED_RATE)): _number(
             0.1, 10, 0.1, "°C/h"
         ),
-        vol.Required(CONF_HOLD_HOURS, default=default(CONF_HOLD_HOURS)): _number(0, 24, 0.5, "h"),
         vol.Required(
             CONF_IMPORT_HISTORY, default=default(CONF_IMPORT_HISTORY)
         ): selector.BooleanSelector(),

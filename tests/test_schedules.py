@@ -20,6 +20,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.ready_by.const import (
     DOMAIN,
     EVENT_HEATING_STARTED,
+    EVENT_SESSION_ENDED,
     PHASE_HEATING,
     PHASE_HOLDING,
     PHASE_IDLE,
@@ -295,3 +296,105 @@ async def test_turning_on_off_at_ready_by_during_daily_hold_ends_it(
     await controller.async_set_daily_off_at_ready_by(True)
     assert climate_calls.modes == ["heat", "off"]
     assert controller.data.active_ready_by == local(19, days=1)
+
+
+async def test_session_length_entity_and_migration(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller = await _setup(hass)
+    ended = async_capture_events(hass, EVENT_SESSION_ENDED)
+    # make_entry sets the old hold_hours option to 1; it's carried over.
+    assert controller.data.session_hours == 1
+    number = entity_id(hass, "number", entry, "session_length")
+    assert float(hass.states.get(number).state) == 1
+
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": number, "value": 3}, blocking=True
+    )
+    await controller.async_set_ready_by(local(19))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    await _fire(hass, freezer, local(19) + timedelta(seconds=1))
+    await _fire(hass, freezer, local(21) + timedelta(seconds=1))
+    assert controller.data.phase == PHASE_HOLDING
+    await _fire(hass, freezer, local(22) + timedelta(seconds=1))
+    assert climate_calls.modes == ["heat", "off"]
+    assert [(e.data["reason"], e.data["heater_off"]) for e in ended] == [("scheduled", True)]
+
+
+async def test_shortening_session_during_hold(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    _, controller = await _setup(hass)
+    await controller.async_set_session_length(4)
+    await controller.async_set_ready_by(local(19))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    await _fire(hass, freezer, local(20) + timedelta(seconds=1))
+    assert controller.data.phase == PHASE_HOLDING
+
+    await controller.async_set_session_length(0.5)
+    await hass.async_block_till_done()
+    assert climate_calls.modes == ["heat", "off"]
+    assert controller.data.phase == PHASE_IDLE
+
+
+async def test_zero_session_length_leaves_heater_on(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    _, controller = await _setup(hass)
+    await controller.async_set_session_length(0)
+    await controller.async_set_ready_by(local(19))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    await _fire(hass, freezer, local(19) + timedelta(seconds=1))
+    assert climate_calls.modes == ["heat"]
+    assert controller.data.phase == PHASE_IDLE
+
+
+async def test_end_session_button_overrides_scheduled_end(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller = await _setup(hass)
+    ended = async_capture_events(hass, EVENT_SESSION_ENDED)
+    await controller.async_set_daily_time(time(7, 0))
+    await controller.async_set_ready_by(local(19))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    await _fire(hass, freezer, local(19, 20))
+    assert controller.data.phase == PHASE_HOLDING
+
+    await hass.services.async_call(
+        "button",
+        "press",
+        {"entity_id": entity_id(hass, "button", entry, "end_session")},
+        blocking=True,
+    )
+    assert climate_calls.modes == ["heat", "off"]
+    assert controller.data.enabled is False
+    assert controller.data.active == SCHEDULE_DAILY
+    assert controller.data.active_ready_by == local(7, days=1)
+    assert [(e.data["reason"], e.data["schedule"], e.data["heater_off"]) for e in ended] == [
+        ("manual", SCHEDULE_ONE_OFF, True)
+    ]
+    # The old scheduled end doesn't fire later.
+    await _fire(hass, freezer, local(20) + timedelta(seconds=1))
+    assert climate_calls.modes == ["heat", "off"]
+
+
+async def test_end_session_while_preheating_and_when_idle(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller = await _setup(hass)
+    await controller.async_set_daily_time(time(19, 0))
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    assert controller.data.phase == PHASE_HEATING
+
+    await hass.services.async_call(
+        DOMAIN, "end_session", {"config_entry_id": entry.entry_id}, blocking=True
+    )
+    assert climate_calls.modes == ["heat", "off"]
+    assert controller.data.daily_enabled
+    assert controller.data.active_ready_by == local(19, days=1)
+
+    # With nothing running it still turns the heater off.
+    await hass.services.async_call(
+        DOMAIN, "end_session", {"config_entry_id": entry.entry_id}, blocking=True
+    )
+    assert climate_calls.modes == ["heat", "off", "off"]

@@ -33,11 +33,13 @@ MAX_TARGET: Final = 45.0
 EVENT_HEATING_STARTED: Final = "ready_by_heating_started"
 EVENT_READY: Final = "ready_by_ready"
 EVENT_LATE: Final = "ready_by_late"
+EVENT_SESSION_ENDED: Final = "ready_by_session_ended"
 
 SERVICE_SET_READY_BY: Final = "set_ready_by"
 SERVICE_IMPORT_SESSIONS: Final = "import_sessions"
 SERVICE_RESET_MODEL: Final = "reset_model"
 SERVICE_SET_DAILY: Final = "set_daily"
+SERVICE_END_SESSION: Final = "end_session"
 
 ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
 ATTR_READY_BY: Final = "ready_by"
