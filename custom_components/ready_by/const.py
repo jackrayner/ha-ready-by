@@ -37,18 +37,24 @@ EVENT_LATE: Final = "ready_by_late"
 SERVICE_SET_READY_BY: Final = "set_ready_by"
 SERVICE_IMPORT_SESSIONS: Final = "import_sessions"
 SERVICE_RESET_MODEL: Final = "reset_model"
+SERVICE_SET_DAILY: Final = "set_daily"
 
 ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
 ATTR_READY_BY: Final = "ready_by"
 ATTR_TARGET: Final = "target"
 ATTR_SESSIONS: Final = "sessions"
 ATTR_COOLING: Final = "cooling"
+ATTR_TIME: Final = "time"
+ATTR_ENABLED: Final = "enabled"
 
 PHASE_IDLE: Final = "idle"
 PHASE_SCHEDULED: Final = "scheduled"
 PHASE_HEATING: Final = "heating"
 PHASE_HOLDING: Final = "holding"
 PHASES: Final = [PHASE_IDLE, PHASE_SCHEDULED, PHASE_HEATING, PHASE_HOLDING]
+
+SCHEDULE_ONE_OFF: Final = "one_off"
+SCHEDULE_DAILY: Final = "daily"
 
 STORAGE_VERSION: Final = 1
 MAX_SESSIONS: Final = 200
