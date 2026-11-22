@@ -50,9 +50,12 @@ USER_SCHEMA = vol.Schema(
 )
 
 
-def _options_schema(options: dict[str, Any]) -> vol.Schema:
+def _options_schema(options: dict[str, Any], weather: str | None) -> vol.Schema:
     return vol.Schema(
         {
+            vol.Optional(
+                CONF_WEATHER, description={"suggested_value": weather}
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
             vol.Optional(
                 CONF_POWER, description={"suggested_value": options.get(CONF_POWER)}
             ): selector.EntitySelector(
@@ -141,7 +144,10 @@ class ReadyByConfigFlow(ConfigFlow, domain=DOMAIN):
 class ReadyByOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
-        return self.async_show_form(
-            step_id="init", data_schema=_options_schema(dict(self.config_entry.options))
-        )
+            # A cleared selector is left out of the input; store it as cleared.
+            return self.async_create_entry(
+                data={CONF_WEATHER: None, CONF_POWER: None, **user_input}
+            )
+        options = dict(self.config_entry.options)
+        weather = options.get(CONF_WEATHER, self.config_entry.data.get(CONF_WEATHER))
+        return self.async_show_form(step_id="init", data_schema=_options_schema(options, weather))

@@ -13,6 +13,7 @@ from custom_components.ready_by.const import (
     CONF_POWER_THRESHOLD,
     CONF_SEED_RATE,
     CONF_WATER,
+    CONF_WEATHER,
     DOMAIN,
 )
 
@@ -71,3 +72,40 @@ async def test_options_flow_updates_and_reloads(hass: HomeAssistant):
     assert entry.runtime_data.sources.power_threshold == 250
     assert entry.runtime_data.seed_rate == 1.5
     assert entry.runtime_data.buffer.total_seconds() == 1800
+
+
+async def test_options_set_and_clear_weather(hass: HomeAssistant):
+    set_climate(hass)
+    set_temps(hass)
+    entry = await setup_entry(hass, make_entry())
+    assert entry.runtime_data.weather_id is None
+    base = {
+        CONF_BUFFER_MINUTES: 15,
+        CONF_SEED_RATE: 1.0,
+        CONF_HOLD_HOURS: 2,
+        CONF_IMPORT_HISTORY: False,
+        CONF_POWER_THRESHOLD: 100,
+    }
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(
+        result["flow_id"], {**base, CONF_WEATHER: "weather.home"}
+    )
+    await hass.async_block_till_done()
+    assert entry.runtime_data.weather_id == "weather.home"
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(result["flow_id"], base)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.weather_id is None
+    assert entry.runtime_data.sources.power_id is None
+
+
+async def test_options_weather_overrides_setup_choice(hass: HomeAssistant):
+    set_climate(hass)
+    set_temps(hass)
+    entry = await setup_entry(hass, make_entry(weather="weather.setup"))
+    assert entry.runtime_data.weather_id == "weather.setup"
+    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_WEATHER: None})
+    await hass.async_block_till_done()
+    assert entry.runtime_data.weather_id is None

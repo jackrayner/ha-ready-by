@@ -25,6 +25,7 @@
     "step": {
       "init": {
         "data": {
+          "weather_entity": "Weather forecast",
           "power_sensor": "Heater power sensor",
           "power_threshold": "Heating power threshold",
           "buffer_minutes": "Safety buffer",
@@ -33,6 +34,7 @@
           "import_history": "Learn from recorder history on first setup"
         },
         "data_description": {
+          "weather_entity": "Optional. Its hourly forecast is used for the outside temperature while heating.",
           "power_sensor": "Optional. When set, the heater counts as heating while this reads above the threshold, instead of using the climate entity. More accurate for heat pumps that don't report hvac_action. Changing it relearns sessions from history.",
           "power_threshold": "Power above which the heater counts as heating.",
           "buffer_minutes": "Aim to reach the target this long before the ready-by time.",

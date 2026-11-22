@@ -133,6 +133,9 @@ class ReadyByController:
 
     @property
     def weather_id(self) -> str | None:
+        # The options override the setup choice once set, including clearing it.
+        if CONF_WEATHER in self.entry.options:
+            return self.entry.options[CONF_WEATHER] or None
         return self.entry.data.get(CONF_WEATHER) or None
 
     @property
