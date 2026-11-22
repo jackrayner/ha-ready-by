@@ -65,10 +65,12 @@ On first setup it learns from whatever the recorder still holds (10 days by defa
 
 ### Options
 
+Everything chosen at setup can be changed later under **Settings → Devices & services → Ready By → Configure**, along with these settings. Changing the heater, the water, outside or power sensor, or the power threshold discards learned sessions and relearns them from recorder history.
+
 | Option | Default | Meaning |
 | --- | --- | --- |
-| Weather forecast | as chosen at setup | Weather entity whose hourly forecast is used for the outside temperature. Can be added or removed here. |
-| Heater power sensor | none | When set, decides when the heater is heating. Changing it discards learned sessions and relearns them from history. |
+| Heater, water, outside and weather entities | as chosen at setup | The entities Ready By reads and controls. Optional ones can be cleared. |
+| Heater power sensor | none | When set, decides when the heater is heating. |
 | Heating power threshold | 100 W | Power above which the heater counts as heating. |
 | Safety buffer | 15 min | Aim to be ready this long before the ready-by time. |
 | Starting heating rate | 1.0 °C/h | Used until 3 sessions have been learned. |

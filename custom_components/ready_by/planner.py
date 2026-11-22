@@ -125,7 +125,7 @@ class ReadyByController:
             climate_id=self.climate_id,
             outside_id=self.outside_id,
             water_id=self.water_id,
-            power_id=self.entry.options.get(CONF_POWER) or None,
+            power_id=self.entry.data.get(CONF_POWER) or None,
             power_threshold=float(
                 self.entry.options.get(CONF_POWER_THRESHOLD, DEFAULT_POWER_THRESHOLD)
             ),
@@ -133,9 +133,6 @@ class ReadyByController:
 
     @property
     def weather_id(self) -> str | None:
-        # The options override the setup choice once set, including clearing it.
-        if CONF_WEATHER in self.entry.options:
-            return self.entry.options[CONF_WEATHER] or None
         return self.entry.data.get(CONF_WEATHER) or None
 
     @property
