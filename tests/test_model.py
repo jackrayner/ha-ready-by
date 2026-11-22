@@ -325,3 +325,69 @@ def test_session_ends_when_water_peaks():
     )
     assert (sessions[0].end, sessions[0].water_end) == (T0 + 2 * h, 38.0)
     assert sessions[0].rate == 2.0
+
+
+def _mode_sessions(n: int, mode: str | None, factor: float, seed: int) -> list[Session]:
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        water, outside = rng.uniform(20, 34), rng.uniform(-3, 18)
+        rate = _true_rate(outside, water + 2) * factor
+        start = T0 + timedelta(days=i, hours=seed)
+        out.append(
+            Session(start, start + timedelta(hours=4 / rate), water, water + 4, outside, mode)
+        )
+    return out
+
+
+def test_mode_factor_learned_and_applied():
+    sessions = _mode_sessions(20, "boost", 1.0, 1) + _mode_sessions(5, "sleep", 0.6, 2)
+    model = fit_heating(sessions, seed_rate=1.0)
+    assert model.mode_factors["sleep"] / model.mode_factors["boost"] == pytest.approx(0.6, abs=0.03)
+    assert model.rate(5, 30, "boost") == pytest.approx(_true_rate(5, 30), abs=0.05)
+    assert model.rate(5, 30, "sleep") == pytest.approx(_true_rate(5, 30) * 0.6, abs=0.05)
+    # The base fit isn't dragged down by the slower mode.
+    assert model.c1 == pytest.approx(TRUE_C1, abs=0.01)
+
+
+def test_mode_needs_enough_sessions():
+    sessions = _mode_sessions(20, "boost", 1.0, 1) + _mode_sessions(2, "sleep", 0.5, 2)
+    model = fit_heating(sessions, seed_rate=1.0)
+    assert "sleep" not in model.mode_factors
+    assert model.factor("sleep") == 1.0
+    assert model.factor(None) == 1.0
+
+
+def test_plan_uses_mode():
+    model = HeatingModel(kind="seed", c0=2.0, mode_factors={"sleep": 0.5})
+    deadline = T0 + timedelta(hours=12)
+    fast = plan_heating(T0, deadline, 30, 38, constant(5), model, 0.0, mode="boost")
+    slow = plan_heating(T0, deadline, 30, 38, constant(5), model, 0.0, mode="sleep")
+    assert near(fast.duration, timedelta(hours=4))
+    assert near(slow.duration, timedelta(hours=8))
+
+
+def test_session_mode_roundtrip_and_old_data():
+    s = Session(T0, T0 + timedelta(hours=2), 30, 34, 5, "boost")
+    assert Session.from_dict(s.as_dict()) == s
+    old = {k: v for k, v in s.as_dict().items() if k != "mode"}
+    assert Session.from_dict(old).mode is None
+
+
+def test_detect_records_mode_and_mixed_runs():
+    h = timedelta(hours=1)
+    sessions, _ = detect(
+        [
+            (T0, "outside", 5.0),
+            (T0, "water", 30.0),
+            (T0, "mode", "boost"),
+            (T0, "heating", True),
+            (T0 + 2 * h, "water", 34.0),
+            (T0 + 2 * h, "heating", False),
+            (T0 + 5 * h, "heating", True),
+            (T0 + 6 * h, "mode", "sleep"),
+            (T0 + 7 * h, "water", 36.0),
+            (T0 + 7 * h, "heating", False),
+        ]
+    )
+    assert [s.mode for s in sessions] == ["boost", None]

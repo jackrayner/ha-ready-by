@@ -55,3 +55,26 @@ async def test_history_failure_is_logged(hass: HomeAssistant, caplog):
         await hass.async_block_till_done()
     assert "Could not import recorder history" in caplog.text
     assert not entry.runtime_data.data.history_imported
+
+
+async def test_reset_model_relearns_from_history(hass: HomeAssistant):
+    set_climate(hass)
+    set_temps(hass)
+    hass.config.components.add("recorder")
+    start = dt_util.utcnow() - timedelta(days=2)
+    loaded = ([Session(start, start + timedelta(hours=2), 30, 34, 5, "boost")], [])
+    entry = make_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_IMPORT_HISTORY: True}
+    )
+    with patch(
+        "custom_components.ready_by.planner.async_load_history", return_value=loaded
+    ) as load:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        controller = entry.runtime_data
+        controller.data.sessions.append(Session(start, start + timedelta(hours=1), 30, 32, 5))
+        await controller.async_reset_model()
+        assert load.call_count == 2
+    assert [s.mode for s in controller.data.sessions] == ["boost"]

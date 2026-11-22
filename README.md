@@ -19,6 +19,7 @@ It learns from every heating run how fast the heater warms the water at differen
 ## How it works
 
 - **Learning.** Each time the climate entity heats for at least 30 minutes and raises the water by at least 1 °C, the run is stored as a session. The heating rate is fitted as `rate = c0 + c1 × outside + c2 × water` (least squares, with outliers such as a lid left off thrown out). With fewer than 8 sessions it uses a simpler one-variable fit on `outside − water`, and with fewer than 3 it uses a starting rate you set. Idle periods of 2 hours or more give a Newton's-law cooling coefficient.
+- **Heater modes.** Each session records the climate entity's preset mode (for example a heat pump's `boost` or `sleep`/silent mode). Once a mode has 3 or more sessions, it gets its own learned multiplier on the heating rate, and plans use the mode the heater is in now. Runs where the mode changed partway through still count towards the main fit but not towards any mode. Ready By only reads the mode; it never changes it.
 - **Planning.** It simulates the water in 5-minute steps: cooling from now until a candidate start time, then heating, using the outside sensor now and the hourly forecast after that. A binary search finds the latest start that still reaches the target by the ready-by time (minus an optional safety buffer). It plans again when the temperatures, forecast, target or ready-by time change.
 - **Control.** At the start time it sets the climate entity to `heat` at the target temperature. After the ready-by time it keeps heating for the session length you choose, then turns the climate entity off. An **End session** button turns it off early. If there isn't enough time, it starts immediately and marks the plan as late.
 
@@ -99,7 +100,7 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 - `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled` and `target`. Sets the daily time (which turns it on unless `enabled: false`), turns the daily schedule on or off, or sets `off_at_ready_by`.
 - `ready_by.import_sessions`: `config_entry_id`, `sessions`, `cooling`. Adds past sessions; returns how many were new.
 - `ready_by.end_session`: `config_entry_id`. Same as the End session button.
-- `ready_by.reset_model`: forgets everything learned.
+- `ready_by.reset_model`: forgets everything learned, then relearns from recorder history if history learning is on.
 
 Events, for your own notifications:
 
