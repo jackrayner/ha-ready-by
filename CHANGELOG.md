@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0](https://github.com/jackrayner/ha-ready-by/compare/0.2.0...0.3.0) (2026-11-22)
+
+
+### Features
+
+* fire ready_by_session_ended when a run ends ([0af8f59](https://github.com/jackrayner/ha-ready-by/commit/0af8f59e1d37f43efea2e2a53d977f4b46646562))
+* learn a heating rate for each heater mode ([19c0aaf](https://github.com/jackrayner/ha-ready-by/commit/19c0aafe29038439c24b16fde3973479a0520fa2))
+* session length entity and an End session button ([8b3af3f](https://github.com/jackrayner/ha-ready-by/commit/8b3af3f3725ee450c7d51a9b3cf0f501ba8766ee))
+* turn the heater off at the daily ready-by time ([ae1896f](https://github.com/jackrayner/ha-ready-by/commit/ae1896ff2e219762e80ae1d860b221e186223902))
+
 ## [0.2.0](https://github.com/jackrayner/ha-ready-by/compare/0.1.0...0.2.0) (2026-11-22)
 
 
