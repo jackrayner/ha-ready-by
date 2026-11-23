@@ -116,6 +116,13 @@
       "expected_ready": {
         "name": "Expected ready"
       },
+      "last_run": {
+        "name": "Last run",
+        "state": {
+          "reached": "Reached target",
+          "missed": "Missed target"
+        }
+      },
       "heat_duration": {
         "name": "Heating time needed"
       },

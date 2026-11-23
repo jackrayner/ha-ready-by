@@ -26,6 +26,7 @@ async def test_setup_creates_entities_and_unloads(hass: HomeAssistant):
         ("sensor", "status"),
         ("sensor", "start_time"),
         ("sensor", "expected_ready"),
+        ("sensor", "last_run"),
         ("sensor", "heat_duration"),
         ("sensor", "heating_rate"),
         ("sensor", "sessions_learned"),

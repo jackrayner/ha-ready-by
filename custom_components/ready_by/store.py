@@ -44,6 +44,9 @@ class ReadyByData:
     daily_done_until: datetime | None = None
     active: str | None = None
     active_ready_by: datetime | None = None
+    predicted_ready: datetime | None = None
+    reached_at: datetime | None = None
+    last_run: dict[str, Any] | None = None
 
     def add_sessions(self, sessions: list[Session]) -> int:
         """Add sessions not already known (by start time); return how many were added."""
@@ -79,6 +82,9 @@ class ReadyByData:
             else None,
             "active": self.active,
             "active_ready_by": self.active_ready_by.isoformat() if self.active_ready_by else None,
+            "predicted_ready": self.predicted_ready.isoformat() if self.predicted_ready else None,
+            "reached_at": self.reached_at.isoformat() if self.reached_at else None,
+            "last_run": self.last_run,
         }
 
     @classmethod
@@ -115,6 +121,13 @@ class ReadyByData:
                 if raw.get("active_ready_by")
                 else None
             ),
+            predicted_ready=(
+                dt_util.parse_datetime(raw["predicted_ready"])
+                if raw.get("predicted_ready")
+                else None
+            ),
+            reached_at=dt_util.parse_datetime(raw["reached_at"]) if raw.get("reached_at") else None,
+            last_run=raw.get("last_run"),
         )
 
 

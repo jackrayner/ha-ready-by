@@ -58,7 +58,10 @@ from .const import (
     PHASE_HOLDING,
     PHASE_IDLE,
     PHASE_SCHEDULED,
+    REACHED_TOLERANCE,
     REPLAN_COOLDOWN_SECONDS,
+    RESULT_MISSED,
+    RESULT_REACHED,
     SCHEDULE_DAILY,
     SCHEDULE_ONE_OFF,
 )
@@ -351,6 +354,7 @@ class ReadyByController:
     async def _async_target_changed(self, schedule: str, *, replan: bool) -> None:
         self._store.async_schedule_save()
         if self._running and self.data.active == schedule:
+            self._reset_outcome()
             await self._async_call_climate(
                 SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: self.active_target}
             )
@@ -479,12 +483,30 @@ class ReadyByController:
 
     @callback
     def _on_inputs_changed(self) -> None:
+        self._check_reached()
         if self.plan is None and self._inputs_ready() and self.upcoming(dt_util.utcnow()):
             # The plan was only missing inputs (e.g. sensors still loading after a
             # restart); plan as soon as they arrive rather than after the cooldown.
             self.entry.async_create_task(self.hass, self.async_replan(), "ready_by replan")
             return
         self._debouncer.async_schedule_call()
+
+    def _reset_outcome(self) -> None:
+        if self.data.phase == PHASE_HEATING:
+            self.data.predicted_ready = None
+            self.data.reached_at = None
+
+    def _check_reached(self) -> None:
+        """Note when the water first reaches the target during a run."""
+        water = self.tracker.water
+        if (
+            self.data.phase == PHASE_HEATING
+            and self.data.reached_at is None
+            and water is not None
+            and water >= self.active_target - REACHED_TOLERANCE
+        ):
+            self.data.reached_at = dt_util.utcnow()
+            self._store.async_schedule_save()
 
     def _inputs_ready(self) -> bool:
         return self.tracker.water is not None and self.outside_at(dt_util.utcnow()) is not None
@@ -632,10 +654,16 @@ class ReadyByController:
                 self._schedule_ready_and_end()
                 self._store.async_schedule_save()
                 if self.active_target != previous_target:
+                    self._reset_outcome()
                     await self._async_call_climate(
                         SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: self.active_target}
                     )
             self.plan = self._progress_plan(now)
+            if data.phase == PHASE_HEATING and data.predicted_ready is None and self.plan:
+                # No prediction for this run yet (its target changed, or none was possible
+                # at the start): judge it against the current one.
+                data.predicted_ready = self.plan.expected_ready
+            self._check_reached()
             self._notify()
             return
 
@@ -688,6 +716,8 @@ class ReadyByController:
         plan = self.plan
         self.data.phase = PHASE_HEATING
         self.data.started_at = dt_util.utcnow()
+        self.data.predicted_ready = plan.expected_ready if plan else None
+        self.data.reached_at = None
         await self._async_call_climate(SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.HEAT})
         await self._async_call_climate(
             SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: self.active_target}
@@ -697,6 +727,7 @@ class ReadyByController:
         if plan is not None and not plan.on_time:
             self.hass.bus.async_fire(EVENT_LATE, event_data)
         self._schedule_ready_and_end()
+        self._check_reached()
         self._store.async_schedule_save()
         await self.async_replan()
 
@@ -733,10 +764,16 @@ class ReadyByController:
 
     async def _async_ready_fired(self, _now: datetime) -> None:
         self._ready_unsub = None
-        self.hass.bus.async_fire(
-            EVENT_READY,
-            {**self._event_data(self.plan), "water_temperature": self.tracker.water},
-        )
+        self._check_reached()
+        result = self._record_result()
+        event_data = {
+            **self._event_data(self.plan),
+            "water_temperature": self.tracker.water,
+            "reached": result["result"] == RESULT_REACHED,
+        }
+        self.hass.bus.async_fire(EVENT_READY, event_data)
+        if result["result"] == RESULT_MISSED:
+            self.hass.bus.async_fire(EVENT_LATE, event_data)
         if self.data.active == SCHEDULE_DAILY and self.data.daily_off_at_ready_by:
             await self._async_finish(turn_off=True)
         elif self.hold > timedelta(0):
@@ -746,6 +783,31 @@ class ReadyByController:
             await self.async_replan()
         else:
             await self._async_finish(turn_off=False)
+
+    def _record_result(self) -> dict[str, Any]:
+        """Compare the run with its prediction at the ready-by time, and keep it."""
+        data = self.data
+        predicted, reached_at = data.predicted_ready, data.reached_at
+        error = (
+            round((reached_at - predicted).total_seconds() / 60)
+            if predicted is not None and reached_at is not None
+            else None
+        )
+        result = {
+            "result": RESULT_REACHED if reached_at is not None else RESULT_MISSED,
+            "schedule": data.active,
+            "ready_by": data.active_ready_by.isoformat() if data.active_ready_by else None,
+            "target": self.active_target,
+            "water_temperature": self.tracker.water,
+            "started_at": data.started_at.isoformat() if data.started_at else None,
+            "predicted_ready": predicted.isoformat() if predicted else None,
+            "reached_at": reached_at.isoformat() if reached_at else None,
+            "prediction_error_minutes": error,
+        }
+        data.last_run = result
+        self._store.async_schedule_save()
+        self._notify()
+        return result
 
     async def _async_end_fired(self, _now: datetime) -> None:
         self._end_unsub = None
@@ -761,6 +823,8 @@ class ReadyByController:
             data.daily_done_until = data.active_ready_by
         data.phase = PHASE_IDLE
         data.started_at = None
+        data.predicted_ready = None
+        data.reached_at = None
         data.active = None
         data.active_ready_by = None
         if turn_off:

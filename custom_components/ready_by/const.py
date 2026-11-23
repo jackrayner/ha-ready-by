@@ -71,3 +71,9 @@ ARCHIVE_SAMPLE_INTERVAL: Final = timedelta(minutes=1)
 ARCHIVE_FLUSH_INTERVAL: Final = timedelta(minutes=15)
 FORECAST_INTERVAL: Final = timedelta(minutes=30)
 REPLAN_COOLDOWN_SECONDS: Final = 30
+# Water within this much of the target counts as reaching it (sensors often
+# report whole or half degrees, and heaters may stop just short of the setpoint).
+REACHED_TOLERANCE: Final = 0.5
+RESULT_REACHED: Final = "reached"
+RESULT_MISSED: Final = "missed"
+RESULTS: Final = [RESULT_REACHED, RESULT_MISSED]
