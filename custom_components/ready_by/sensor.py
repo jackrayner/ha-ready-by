@@ -16,7 +16,7 @@ from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import PHASES
+from .const import PHASES, RESULTS
 from .entity import ReadyByEntity
 from .planner import ReadyByConfigEntry, ReadyByController
 
@@ -57,6 +57,12 @@ SENSORS: tuple[ReadyBySensorDescription, ...] = (
         key="expected_ready",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda c: c.plan.expected_ready if c.plan else None,
+    ),
+    ReadyBySensorDescription(
+        key="last_run",
+        device_class=SensorDeviceClass.ENUM,
+        options=RESULTS,
+        value_fn=lambda c: c.data.last_run["result"] if c.data.last_run else None,
     ),
     ReadyBySensorDescription(
         key="heat_duration",
@@ -120,6 +126,9 @@ class ReadyBySensor(ReadyByEntity, SensorEntity):
     def extra_state_attributes(self) -> dict | None:
         if self.entity_description.key == "heating_rate":
             return self.controller.model.as_dict()
+        if self.entity_description.key == "last_run":
+            last_run = self.controller.data.last_run
+            return {k: v for k, v in last_run.items() if k != "result"} if last_run else None
         if self.entity_description.key == "next_ready_by":
             upcoming = self.controller.next_ready_by
             return {"schedule": upcoming[0] if upcoming else None}

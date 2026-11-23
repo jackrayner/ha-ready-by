@@ -13,7 +13,9 @@ Ground rules that apply to all of them:
 
 **Why:** confidence in the model is currently an estimate from the fit (R²). Measuring the real error is what makes the other items judgeable, and lets the safety buffer be set from evidence.
 
-**What:** when a run reaches its target (or the ready-by time passes), record the predicted ready time made at the start of heating next to the actual time the water reached the target. Keep a rolling log in the store (bounded, small) and expose:
+**Done so far:** each run's outcome is recorded at its ready-by time (`ReadyByData.last_run`, shown by the Last run sensor): the predicted ready time made at the start of heating, the actual time the water reached the target, and the error in minutes. Only the latest run is kept.
+
+**What's left:** keep a rolling log of those results in the store (bounded, small) and expose:
 
 - a sensor for the mean absolute error of recent runs, in minutes, with a state class so it gets long-term statistics
 - the signed mean error as an attribute, to show bias (late versus early)

@@ -244,3 +244,92 @@ async def test_plans_immediately_once_missing_readings_arrive(
     await hass.async_block_till_done()
     assert controller.plan is not None
     assert controller.data.phase == "scheduled"
+
+
+async def _heat_one_off(hass, freezer, *, target=38, water=30):
+    set_climate(hass)
+    set_temps(hass, water=water, outside=5)
+    entry = await setup_entry(hass, make_entry(seed_rate=2.0, hold_hours=1))
+    controller = entry.runtime_data
+    ready_by = dt_util.utcnow() + timedelta(hours=10)
+    await controller.async_set_ready_by(ready_by, target=target)
+    await hass.async_block_till_done()
+    await _fire(hass, freezer, controller.plan.start + timedelta(seconds=1))
+    assert controller.data.phase == PHASE_HEATING
+    return entry, controller, ready_by
+
+
+async def test_run_that_reaches_target_records_prediction_error(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller, ready_by = await _heat_one_off(hass, freezer)
+    predicted = controller.data.predicted_ready
+    assert predicted is not None
+    ready = async_capture_events(hass, EVENT_READY)
+    late = async_capture_events(hass, EVENT_LATE)
+
+    reached = predicted + timedelta(minutes=20)
+    freezer.move_to(reached)
+    set_temps(hass, water=37.6, outside=5)
+    await hass.async_block_till_done()
+    assert controller.data.reached_at == reached
+
+    await _fire(hass, freezer, ready_by + timedelta(seconds=1))
+    assert ready[0].data["reached"] is True
+    assert late == []
+    state = hass.states.get(entity_id(hass, "sensor", entry, "last_run"))
+    assert state.state == "reached"
+    assert state.attributes["prediction_error_minutes"] == 20
+    assert state.attributes["reached_at"] == reached.isoformat()
+    assert state.attributes["target"] == 38
+
+
+async def test_run_that_misses_target_fires_late_and_keeps_result(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller, ready_by = await _heat_one_off(hass, freezer)
+    ready = async_capture_events(hass, EVENT_READY)
+    late = async_capture_events(hass, EVENT_LATE)
+    set_temps(hass, water=36, outside=5)
+    await hass.async_block_till_done()
+
+    await _fire(hass, freezer, ready_by + timedelta(seconds=1))
+    assert ready[0].data["reached"] is False
+    assert len(late) == 1 and late[0].data["water_temperature"] == 36
+    assert controller.data.last_run["prediction_error_minutes"] is None
+
+    # The result outlives the run.
+    await _fire(hass, freezer, ready_by + timedelta(hours=1, seconds=1))
+    assert controller.data.phase == PHASE_IDLE
+    assert hass.states.get(entity_id(hass, "sensor", entry, "last_run")).state == "missed"
+
+
+async def test_raising_target_mid_run_needs_the_new_target(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    _, controller, ready_by = await _heat_one_off(hass, freezer)
+    set_temps(hass, water=38, outside=5)
+    await hass.async_block_till_done()
+    assert controller.data.reached_at is not None
+
+    await controller.async_set_target(40)
+    assert controller.data.reached_at is None
+    assert controller.data.predicted_ready is not None
+
+    await _fire(hass, freezer, ready_by + timedelta(seconds=1))
+    assert controller.data.last_run["result"] == "missed"
+    assert controller.data.last_run["target"] == 40
+
+
+async def test_outcome_survives_restart(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    entry, controller, _ = await _heat_one_off(hass, freezer)
+    set_temps(hass, water=38, outside=5)
+    await hass.async_block_till_done()
+    reached_at, predicted = controller.data.reached_at, controller.data.predicted_ready
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    data = entry.runtime_data.data
+    assert (data.reached_at, data.predicted_ready) == (reached_at, predicted)

@@ -79,7 +79,8 @@ To turn the heater off at the daily ready-by time instead of keeping it on for t
 | `sensor` Expected ready | When the target is expected to be reached. |
 | `sensor` Heating time needed | Predicted minutes of heating. |
 | `sensor` Heating rate | Predicted °C/h at the current temperatures. The model's coefficients are in its attributes. |
-| `binary_sensor` On time | Whether the target will be reached by the ready-by time. |
+| `binary_sensor` On time | A forecast: whether the next (or current) run is expected to reach the target by the ready-by time. Once a run's ready-by time passes it moves on to the next run; see Last run for how it went. |
+| `sensor` Last run | `reached` or `missed`: whether the most recent run reached its target (within 0.5 °C) by its ready-by time. Its attributes give the ready-by time, target, water temperature at the ready-by time, when heating started, the predicted and actual time the target was reached, and the prediction error in minutes (positive means later than predicted). |
 | Diagnostic sensors | Sessions learned, model fit (R²) and cooling coefficient. |
 
 ### Options
@@ -108,8 +109,8 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 Events, for your own notifications:
 
 - `ready_by_heating_started`
-- `ready_by_late`: heating started too late to be ready on time
-- `ready_by_ready`: the ready-by time was reached; includes `water_temperature`
+- `ready_by_late`: heating started too late to be ready on time, or the ready-by time passed without the target being reached (then `reached` is `false`), so a run can fire it twice
+- `ready_by_ready`: the ready-by time was reached; includes `water_temperature` and `reached` (whether the target was reached)
 - `ready_by_session_ended`: a run ended; includes `reason` (`manual` for End session, otherwise `scheduled`) and `heater_off` (whether the heater was turned off)
 
 Each event carries `config_entry_id`, `name`, `schedule` (`daily` or `one_off`), `ready_by`, `target` (the target of that run's schedule), `expected_ready` and `on_time`.
