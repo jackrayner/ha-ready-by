@@ -479,7 +479,15 @@ class ReadyByController:
 
     @callback
     def _on_inputs_changed(self) -> None:
+        if self.plan is None and self._inputs_ready() and self.upcoming(dt_util.utcnow()):
+            # The plan was only missing inputs (e.g. sensors still loading after a
+            # restart); plan as soon as they arrive rather than after the cooldown.
+            self.entry.async_create_task(self.hass, self.async_replan(), "ready_by replan")
+            return
         self._debouncer.async_schedule_call()
+
+    def _inputs_ready(self) -> bool:
+        return self.tracker.water is not None and self.outside_at(dt_util.utcnow()) is not None
 
     def _should_import_history(self) -> bool:
         return bool(
