@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/jackrayner/ha-ready-by/compare/0.5.0...0.6.0) (2026-11-23)
+
+
+### Features
+
+* record whether each run reached its target ([ed11709](https://github.com/jackrayner/ha-ready-by/commit/ed1170922ee5474a361827aa4c1ae4a59db79295))
+
+
+### Bug Fixes
+
+* plan as soon as missing readings arrive after a restart ([c4aed3c](https://github.com/jackrayner/ha-ready-by/commit/c4aed3c173511eefa933afd14e4743c8e7c1d4d3))
+
 ## [0.5.0](https://github.com/jackrayner/ha-ready-by/compare/0.4.0...0.5.0) (2026-11-22)
 
 
