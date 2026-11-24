@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/jackrayner/ha-ready-by/compare/0.6.0...0.7.0) (2026-11-24)
+
+
+### Features
+
+* add a daily earliest start time ([459a677](https://github.com/jackrayner/ha-ready-by/commit/459a677f6b5c83da6f1ceb62d724766e8fe5354a))
+* fit a cold-weather heating form when the data supports it ([9371df5](https://github.com/jackrayner/ha-ready-by/commit/9371df501d7c238dbf1c45881fb8de2299672675))
+
 ## [0.6.0](https://github.com/jackrayner/ha-ready-by/compare/0.5.0...0.6.0) (2026-11-23)
 
 
