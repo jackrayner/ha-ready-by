@@ -20,6 +20,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.ready_by.const import (
     DOMAIN,
     EVENT_HEATING_STARTED,
+    EVENT_LATE,
     EVENT_SESSION_ENDED,
     PHASE_HEATING,
     PHASE_HOLDING,
@@ -54,7 +55,7 @@ async def _fire(hass: HomeAssistant, freezer: FrozenDateTimeFactory, when: datet
 async def _setup(hass: HomeAssistant, **kwargs):
     set_climate(hass)
     set_temps(hass, water=30, outside=5)
-    entry = await setup_entry(hass, make_entry(seed_rate=2.0, hold_hours=1, **kwargs))
+    entry = await setup_entry(hass, make_entry(**{"seed_rate": 2.0, "hold_hours": 1, **kwargs}))
     return entry, entry.runtime_data
 
 
@@ -457,3 +458,78 @@ async def test_one_off_taking_over_daily_switches_setpoint(
     await controller.async_set_ready_by(local(18, 0))
     assert controller.data.active == SCHEDULE_ONE_OFF
     assert climate_calls.temperature[-1].data["temperature"] == 38
+
+
+async def test_daily_earliest_start_waits_and_reports_late(
+    hass: HomeAssistant, london, freezer: FrozenDateTimeFactory, climate_calls: ClimateCalls
+):
+    # 30 → 40 °C at 1 °C/h needs 10 h, but 23:30 → 05:30 is only 6 h.
+    entry, controller = await _setup(hass, seed_rate=1.0)
+    late = async_capture_events(hass, EVENT_LATE)
+    await controller.async_set_daily_target(40, replan=False)
+    await controller.async_set_daily_time(time(5, 30))
+    assert controller.plan.start < local(23, 30)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_daily",
+        {"config_entry_id": entry.entry_id, "earliest_start": "23:30"},
+        blocking=True,
+    )
+    assert controller.data.daily_earliest_enabled
+    assert controller.plan.start == local(23, 30)
+    assert not controller.plan.on_time
+    assert hass.states.get(entity_id(hass, "time", entry, "daily_earliest_start")).state == (
+        "23:30:00"
+    )
+    assert hass.states.get(entity_id(hass, "binary_sensor", entry, "on_time")).state == "off"
+
+    await _fire(hass, freezer, local(23, 0))
+    assert controller.data.phase == PHASE_SCHEDULED
+    await _fire(hass, freezer, local(23, 30) + timedelta(seconds=1))
+    assert controller.data.phase == PHASE_HEATING
+    assert climate_calls.modes == ["heat"]
+    assert len(late) == 1
+
+
+async def test_daily_earliest_start_switch_and_clearing(hass: HomeAssistant, london):
+    entry, controller = await _setup(hass, seed_rate=1.0)
+    await controller.async_set_daily_target(40, replan=False)
+    await controller.async_set_daily_time(time(5, 30))
+    unlimited = controller.plan.start
+    await controller.async_set_daily_earliest_start(time(23, 30))
+    assert controller.plan.start == local(23, 30)
+
+    switch = entity_id(hass, "switch", entry, "daily_earliest_enabled")
+    await hass.services.async_call("switch", "turn_off", {"entity_id": switch}, blocking=True)
+    assert controller.plan.start == unlimited
+    await hass.services.async_call("switch", "turn_on", {"entity_id": switch}, blocking=True)
+    assert controller.plan.start == local(23, 30)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_daily",
+        {"config_entry_id": entry.entry_id, "earliest_start": None},
+        blocking=True,
+    )
+    assert not controller.data.daily_earliest_enabled
+    assert controller.data.daily_earliest_start == time(23, 30)
+    assert controller.plan.start == unlimited
+
+
+async def test_earliest_start_does_not_apply_to_one_off(hass: HomeAssistant, london):
+    _, controller = await _setup(hass, seed_rate=1.0)
+    await controller.async_set_daily_earliest_start(time(23, 30))
+    await controller.async_set_ready_by(local(5, 30, days=1), target=40)
+    assert controller.data.active == SCHEDULE_ONE_OFF
+    assert controller.plan.start < local(23, 30)
+
+
+async def test_earliest_start_is_the_occurrence_before_ready_by(hass: HomeAssistant, london):
+    _, controller = await _setup(hass)
+    await controller.async_set_daily_earliest_start(time(23, 30))
+    assert controller.earliest_start(SCHEDULE_DAILY, local(5, 30, days=1)) == local(23, 30)
+    # Same day when the earliest start is before the ready-by time.
+    await controller.async_set_daily_earliest_start(time(2, 0))
+    assert controller.earliest_start(SCHEDULE_DAILY, local(5, 30, days=1)) == local(2, 0, days=1)
+    assert controller.earliest_start(SCHEDULE_ONE_OFF, local(5, 30, days=1)) is None

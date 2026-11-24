@@ -52,6 +52,7 @@ ATTR_COOLING: Final = "cooling"
 ATTR_TIME: Final = "time"
 ATTR_ENABLED: Final = "enabled"
 ATTR_OFF_AT_READY_BY: Final = "off_at_ready_by"
+ATTR_EARLIEST_START: Final = "earliest_start"
 
 PHASE_IDLE: Final = "idle"
 PHASE_SCHEDULED: Final = "scheduled"

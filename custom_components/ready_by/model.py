@@ -586,11 +586,14 @@ def plan_heating(
     model: HeatingModel,
     cooling_k: float,
     mode: str | None = None,
+    earliest: datetime | None = None,
 ) -> Plan:
     """Find the latest start that still reaches target by deadline.
 
     Finish time only moves later as the start moves later, so a binary search
-    over the start time between now and the deadline finds it.
+    over the start time between now (or earliest, if later) and the deadline
+    finds it. If even the first allowed start is too late, the plan starts then
+    and isn't on time.
     """
 
     def finish(start: datetime) -> tuple[datetime | None, float]:
@@ -598,12 +601,15 @@ def plan_heating(
         ready = simulate_heating(start, water_at_start, target, outside_at, model, mode=mode)
         return ready, water_at_start
 
-    ready_now, water_now = finish(now)
-    if deadline <= now or ready_now is None or ready_now > deadline:
-        return Plan(start=now, expected_ready=ready_now, water_at_start=water_now, on_time=False)
+    first = max(now, earliest) if earliest is not None else now
+    ready_first, water_first = finish(first)
+    if deadline <= first or ready_first is None or ready_first > deadline:
+        return Plan(
+            start=first, expected_ready=ready_first, water_at_start=water_first, on_time=False
+        )
 
-    low, high = now, deadline
-    best = (now, ready_now, water_now)
+    low, high = first, deadline
+    best = (first, ready_first, water_first)
     while high - low > PLAN_RESOLUTION:
         mid = low + (high - low) / 2
         ready, water_at_mid = finish(mid)

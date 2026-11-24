@@ -39,6 +39,11 @@ set_daily:
       required: false
       selector:
         boolean:
+    earliest_start:
+      required: false
+      example: "23:30:00"
+      selector:
+        time:
     target:
       required: false
       example: 38

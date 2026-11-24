@@ -52,7 +52,7 @@ Keep the ridge regularisation and the sign checks. Add a minimum number of sessi
 
 **What, in two steps:**
 
-1. An optional **earliest start** time for the daily schedule. If the latest start that's on time is before it, start at the earliest start and accept being late (report it through `on_time` and the late event). This is small and covers fixed overnight tariffs.
+1. **Earliest start (done).** `plan_heating(earliest=...)` and the Daily earliest start entity: a daily run never starts before it, and is reported late when that leaves too little time.
 2. Price-aware planning from a price entity or a list of (time, price) periods. `plan_heating` already takes `outside_at` as a function; add a price function and choose the cheapest set of heating periods that still reaches the target by the deadline, accounting for cooling between periods. Start with a single contiguous block (search over start times, scoring cost), and only move to non-contiguous blocks if it's clearly worth the added state.
 
 **Done when:** tests cover a window that ends before the ready-by time, an earliest start that makes the run late, and a cheaper block chosen over the latest possible one.

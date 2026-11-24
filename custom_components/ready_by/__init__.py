@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_COOLING,
+    ATTR_EARLIEST_START,
     ATTR_ENABLED,
     ATTR_OFF_AT_READY_BY,
     ATTR_READY_BY,
@@ -81,6 +82,7 @@ SET_DAILY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_TIME): cv.time,
         vol.Optional(ATTR_ENABLED): cv.boolean,
         vol.Optional(ATTR_OFF_AT_READY_BY): cv.boolean,
+        vol.Optional(ATTR_EARLIEST_START): vol.Any(None, cv.time),
         vol.Optional(ATTR_TARGET): vol.All(
             vol.Coerce(float), vol.Range(min=MIN_TARGET, max=MAX_TARGET)
         ),
@@ -125,6 +127,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             await controller.async_set_daily_target(call.data[ATTR_TARGET], replan=False)
         if ATTR_OFF_AT_READY_BY in call.data:
             await controller.async_set_daily_off_at_ready_by(call.data[ATTR_OFF_AT_READY_BY])
+        if ATTR_EARLIEST_START in call.data:
+            earliest = call.data[ATTR_EARLIEST_START]
+            await controller.async_set_daily_earliest_start(
+                earliest, enabled=False if earliest is None else None
+            )
         if ATTR_TIME in call.data:
             await controller.async_set_daily_time(
                 call.data[ATTR_TIME], enable=call.data.get(ATTR_ENABLED, True)

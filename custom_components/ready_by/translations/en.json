@@ -86,6 +86,9 @@
       },
       "daily_off_at_ready_by": {
         "name": "Turn off at daily ready-by"
+      },
+      "daily_earliest_enabled": {
+        "name": "Limit daily start time"
       }
     },
     "sensor": {
@@ -142,6 +145,9 @@
     "time": {
       "daily_ready_by": {
         "name": "Daily ready by"
+      },
+      "daily_earliest_start": {
+        "name": "Daily earliest start"
       }
     },
     "button": {
@@ -176,7 +182,7 @@
     },
     "set_daily": {
       "name": "Set daily ready-by",
-      "description": "Sets the daily ready-by time or target, turns the daily schedule on or off, or sets whether it turns the heater off at the ready-by time.",
+      "description": "Sets the daily ready-by time, target or earliest start, turns the daily schedule on or off, or sets whether it turns the heater off at the ready-by time.",
       "fields": {
         "config_entry_id": {
           "name": "Entry",
@@ -193,6 +199,10 @@
         "off_at_ready_by": {
           "name": "Turn off at ready-by",
           "description": "Turn the heater off at the daily ready-by time instead of keeping it on for the hold period, for example when a cheap electricity rate ends then."
+        },
+        "earliest_start": {
+          "name": "Earliest start",
+          "description": "Don't start daily runs before this time, for example when a cheap electricity rate begins. Setting it turns the limit on; an empty value turns it off."
         },
         "target": {
           "name": "Target",
