@@ -32,6 +32,15 @@ PLAN_RESOLUTION = timedelta(minutes=1)
 MODE_MIN_SESSIONS = 3
 MIN_MODE_FACTOR = 0.25
 MAX_MODE_FACTOR = 2.0
+# Cold-weather form: an extra term below a knee, for air-source heat pumps that
+# lose capacity (and defrost) in cold air. It's only used when it predicts
+# held-out sessions clearly better than the linear fit.
+COLD_FIT_MIN_SESSIONS = 12
+COLD_MIN_EACH_SIDE = 4
+COLD_KNEES = (-2.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0)
+COLD_MIN_IMPROVEMENT = 0.1
+CV_FOLDS = 10
+CV_MAX_SESSIONS = 400
 
 OutsideTemp = Callable[[datetime], float]
 
@@ -319,8 +328,11 @@ def detect(
 
 @dataclass(frozen=True)
 class HeatingModel:
-    """Predicted heating rate (°C/h): (c0 + c1 * outside + c2 * water) * mode factor, clamped.
+    """Predicted heating rate (°C/h), clamped:
 
+        (c0 + c1 * outside + c2 * water + c3 * max(0, knee - outside)) * mode factor
+
+    The knee term is only present in the "cold" form (knee is None otherwise).
     mode_factors holds a learned multiplier for each heater mode with enough
     sessions; any other mode, or no mode, uses 1.
     """
@@ -333,12 +345,17 @@ class HeatingModel:
     r2: float | None = None
     max_rate: float | None = None
     mode_factors: dict[str, float] = field(default_factory=dict)
+    c3: float = 0.0
+    knee: float | None = None
 
     def factor(self, mode: str | None) -> float:
         return self.mode_factors.get(mode, 1.0) if mode else 1.0
 
     def rate(self, outside: float, water: float, mode: str | None = None) -> float:
-        raw = (self.c0 + self.c1 * outside + self.c2 * water) * self.factor(mode)
+        raw = self.c0 + self.c1 * outside + self.c2 * water
+        if self.knee is not None:
+            raw += self.c3 * max(0.0, self.knee - outside)
+        raw *= self.factor(mode)
         upper = self.max_rate * MAX_RATE_HEADROOM if self.max_rate else None
         if upper is not None:
             raw = min(raw, upper)
@@ -354,6 +371,8 @@ class HeatingModel:
             "r2": self.r2,
             "max_rate": self.max_rate,
             "mode_factors": dict(self.mode_factors),
+            "c3": self.c3,
+            "knee": self.knee,
         }
 
 
@@ -362,7 +381,8 @@ def fit_heating(sessions: Iterable[Session], seed_rate: float) -> HeatingModel:
 
     Fewer than SIMPLE_FIT_MIN_SESSIONS: the seed rate. Up to FULL_FIT_MIN_SESSIONS,
     or when the full fit gives physically implausible signs: a one-variable fit on
-    (outside - water). Otherwise the two-variable fit.
+    (outside - water). Otherwise the two-variable fit, or the cold-weather form
+    when cross-validation shows it predicts clearly better.
     """
     valid = [s for s in sessions if s.is_valid()]
     if len(valid) < SIMPLE_FIT_MIN_SESSIONS:
@@ -382,8 +402,73 @@ def _fit_base(sessions: list[Session]) -> HeatingModel:
     if len(kept) >= FULL_FIT_MIN_SESSIONS:
         full = _fit_full(kept)
         if full is not None:
-            return full
+            return _fit_cold(kept) or full
     return _fit_simple(kept)
+
+
+def _fit_cold(sessions: list[Session]) -> HeatingModel | None:
+    """The cold-weather form with the best knee, if it clearly beats the linear fit."""
+    if len(sessions) < COLD_FIT_MIN_SESSIONS:
+        return None
+    outside = [s.outside_avg for s in sessions]
+    knees = [
+        knee
+        for knee in COLD_KNEES
+        if sum(t < knee for t in outside) >= COLD_MIN_EACH_SIDE
+        and sum(t >= knee for t in outside) >= COLD_MIN_EACH_SIDE
+    ]
+    if not knees:
+        return None
+    linear = cross_validate(sessions, linear_fit)
+    if linear is None:
+        return None
+    best: tuple[float, float] | None = None
+    for knee in knees:
+        error = cross_validate(sessions, lambda train, knee=knee: cold_fit(train, knee))
+        if error is not None and (best is None or error < best[0]):
+            best = (error, knee)
+    if best is None or best[0] > linear * (1 - COLD_MIN_IMPROVEMENT):
+        return None
+    return _fit_full(sessions, best[1])
+
+
+def linear_fit(sessions: list[Session]) -> HeatingModel:
+    """The linear fit as the integration would use it, falling back like _fit_base."""
+    return _fit_full(sessions) or _fit_simple(sessions)
+
+
+def cold_fit(sessions: list[Session], knee: float) -> HeatingModel:
+    """The cold-weather form at this knee, falling back to the linear fit."""
+    return _fit_full(sessions, knee) or linear_fit(sessions)
+
+
+def cross_validate(
+    sessions: list[Session], fit: Callable[[list[Session]], HeatingModel | None]
+) -> float | None:
+    """Mean absolute error, in hours, predicting each session's heating time.
+
+    Sessions are split into up to CV_FOLDS blocks in time order; each block is
+    predicted by a model fitted to the others. Large histories are thinned to
+    CV_MAX_SESSIONS evenly spaced sessions first, to keep refits quick. None if
+    any fold can't be fitted.
+    """
+    ordered = sorted(sessions, key=lambda s: s.start)
+    if len(ordered) > CV_MAX_SESSIONS:
+        step = len(ordered) / CV_MAX_SESSIONS
+        ordered = [ordered[int(i * step)] for i in range(CV_MAX_SESSIONS)]
+    folds = min(CV_FOLDS, len(ordered))
+    if folds < 2:
+        return None
+    errors: list[float] = []
+    for f in range(folds):
+        lo, hi = len(ordered) * f // folds, len(ordered) * (f + 1) // folds
+        model = fit(ordered[:lo] + ordered[hi:])
+        if model is None:
+            return None
+        for s in ordered[lo:hi]:
+            predicted = (s.water_end - s.water_start) / model.rate(s.outside_avg, s.water_mid)
+            errors.append(abs(predicted - s.hours))
+    return statistics.fmean(errors)
 
 
 def _mode_factors(sessions: list[Session], base: HeatingModel) -> dict[str, float]:
@@ -429,38 +514,65 @@ def _fit_simple(sessions: list[Session]) -> HeatingModel:
     )
 
 
-def _fit_full(sessions: list[Session]) -> HeatingModel | None:
-    x1 = [s.outside_avg for s in sessions]
-    x2 = [s.water_mid for s in sessions]
+def _fit_full(sessions: list[Session], knee: float | None = None) -> HeatingModel | None:
+    """Ridge fit on outside and water temperature, plus the cold term when knee is set."""
+
+    def features(s: Session) -> list[float]:
+        row = [s.outside_avg, s.water_mid]
+        if knee is not None:
+            row.append(max(0.0, knee - s.outside_avg))
+        return row
+
+    rows = [features(s) for s in sessions]
     ys = [s.rate for s in sessions]
-    m1, m2, my = statistics.fmean(x1), statistics.fmean(x2), statistics.fmean(ys)
-    d1 = [v - m1 for v in x1]
-    d2 = [v - m2 for v in x2]
-    dy = [v - my for v in ys]
-    a11 = sum(v * v for v in d1) + RIDGE_LAMBDA
-    a22 = sum(v * v for v in d2) + RIDGE_LAMBDA
-    a12 = sum(a * b for a, b in zip(d1, d2, strict=True))
-    b1 = sum(a * b for a, b in zip(d1, dy, strict=True))
-    b2 = sum(a * b for a, b in zip(d2, dy, strict=True))
-    det = a11 * a22 - a12 * a12
-    if abs(det) < 1e-9:
+    solved = _ridge(rows, ys)
+    if solved is None:
         return None
-    c1 = (b1 * a22 - b2 * a12) / det
-    c2 = (a11 * b2 - a12 * b1) / det
-    # Warmer air should speed heating and hotter water should slow it.
-    if c1 < 0 or c2 > 0:
+    c0, coefs = solved
+    c1, c2 = coefs[0], coefs[1]
+    c3 = coefs[2] if knee is not None else 0.0
+    # Warmer air should speed heating, hotter water should slow it, and the
+    # cold term can only slow it further.
+    if c1 < 0 or c2 > 0 or c3 > 0:
         return None
-    c0 = my - c1 * m1 - c2 * m2
-    predicted = [c0 + c1 * a + c2 * b for a, b in zip(x1, x2, strict=True)]
+    predicted = [c0 + sum(c * x for c, x in zip(coefs, row, strict=True)) for row in rows]
     return HeatingModel(
-        kind="full",
+        kind="full" if knee is None else "cold",
         c0=c0,
         c1=c1,
         c2=c2,
+        c3=c3,
+        knee=knee,
         n=len(sessions),
         r2=_r2(ys, predicted),
         max_rate=max(ys),
     )
+
+
+def _ridge(rows: list[list[float]], ys: list[float]) -> tuple[float, list[float]] | None:
+    """Intercept and coefficients of a ridge regression on centred features."""
+    k = len(rows[0])
+    means = [statistics.fmean(r[j] for r in rows) for j in range(k)]
+    y_mean = statistics.fmean(ys)
+    centred = [[r[j] - means[j] for j in range(k)] for r in rows]
+    dy = [y - y_mean for y in ys]
+    # Normal equations (X'X + λI) c = X'y, solved by Gaussian elimination.
+    a = [
+        [sum(r[i] * r[j] for r in centred) + (RIDGE_LAMBDA if i == j else 0.0) for j in range(k)]
+        + [sum(r[i] * y for r, y in zip(centred, dy, strict=True))]
+        for i in range(k)
+    ]
+    for col in range(k):
+        pivot = max(range(col, k), key=lambda r: abs(a[r][col]))
+        if abs(a[pivot][col]) < 1e-9:
+            return None
+        a[col], a[pivot] = a[pivot], a[col]
+        for r in range(k):
+            if r != col:
+                factor = a[r][col] / a[col][col]
+                a[r] = [x - factor * y for x, y in zip(a[r], a[col], strict=True)]
+    coefs = [a[i][k] / a[i][i] for i in range(k)]
+    return y_mean - sum(c * m for c, m in zip(coefs, means, strict=True)), coefs
 
 
 def _reject_outliers(sessions: list[Session]) -> list[Session]:

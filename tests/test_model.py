@@ -5,11 +5,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from custom_components.ready_by.model import (
+    COLD_FIT_MIN_SESSIONS,
     DEFAULT_COOLING_K,
     MIN_RATE,
     CoolingSample,
     HeatingModel,
     Session,
+    _fit_full,
+    cross_validate,
     detect,
     fit_cooling,
     fit_heating,
@@ -391,3 +394,63 @@ def test_detect_records_mode_and_mixed_runs():
         ]
     )
     assert [s.mode for s in sessions] == ["boost", None]
+
+
+def _cold_sessions(n: int, *, knee: float, penalty: float, low: float = -6, seed: int = 3):
+    """Linear sessions, slowed by `penalty` °C/h per degree below `knee` (defrosting)."""
+    rng = random.Random(seed)
+    sessions = []
+    for i in range(n):
+        outside = rng.uniform(low, 15)
+        water = rng.uniform(26, 34)
+        rate = _true_rate(outside, water + 2) - penalty * max(0.0, knee - outside)
+        rate += rng.gauss(0, 0.01)
+        start = T0 + timedelta(days=i)
+        sessions.append(
+            Session(start, start + timedelta(hours=4 / rate), water, water + 4, outside)
+        )
+    return sessions
+
+
+def test_cold_form_chosen_when_heating_falls_off_below_a_knee():
+    sessions = _cold_sessions(60, knee=2.0, penalty=0.06)
+    model = fit_heating(sessions, seed_rate=1.0)
+    assert model.kind == "cold"
+    assert model.knee == pytest.approx(2.0, abs=1.0)
+    assert model.c3 < 0
+    linear = _fit_full(sessions)
+    true_cold = _true_rate(-5, 32) - 0.06 * 7
+    assert abs(model.rate(-5, 32) - true_cold) < abs(linear.rate(-5, 32) - true_cold)
+    assert model.rate(10, 32) == pytest.approx(_true_rate(10, 32), abs=0.05)
+    assert model.as_dict()["knee"] == model.knee
+
+
+def test_linear_kept_when_there_is_no_knee():
+    sessions = _cold_sessions(60, knee=2.0, penalty=0.0)
+    assert fit_heating(sessions, seed_rate=1.0).kind == "full"
+
+
+def test_cold_form_needs_sessions_on_both_sides_of_a_knee():
+    # A strong knee, but only mild weather was seen: nothing to fit it on.
+    sessions = _cold_sessions(60, knee=2.0, penalty=0.06, low=9)
+    model = fit_heating(sessions, seed_rate=1.0)
+    assert model.kind == "full"
+    assert model.knee is None
+
+
+def test_cold_form_needs_enough_sessions():
+    sessions = _cold_sessions(COLD_FIT_MIN_SESSIONS - 1, knee=2.0, penalty=0.06)
+    assert fit_heating(sessions, seed_rate=1.0).kind == "full"
+
+
+def test_cross_validate_is_zero_for_the_true_model():
+    sessions = _synthetic_sessions(20, noise=0.0)
+    true = HeatingModel(kind="full", c0=TRUE_C0, c1=TRUE_C1, c2=TRUE_C2)
+    assert cross_validate(sessions, lambda _train: true) == pytest.approx(0, abs=1e-9)
+    assert cross_validate(sessions[:1], lambda _train: true) is None
+
+
+def test_cold_rate_formula():
+    model = HeatingModel(kind="cold", c0=2.0, c1=0.05, c2=-0.02, c3=-0.1, knee=3.0)
+    assert model.rate(5, 30) == pytest.approx(2.0 + 0.25 - 0.6)
+    assert model.rate(-1, 30) == pytest.approx(2.0 - 0.05 - 0.6 - 0.4)
