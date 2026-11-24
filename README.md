@@ -67,6 +67,8 @@ To turn the heater off at the daily ready-by time instead of keeping it on for t
 | `time` Daily ready by | When the water should be hot every day. Setting it turns the daily schedule on. |
 | `switch` Daily schedule | Turns the daily schedule on or off. |
 | `switch` Turn off at daily ready-by | When on, the daily run turns the heater off at the ready-by time instead of holding, for example when a cheap electricity rate ends. |
+| `time` Daily earliest start | Daily runs don't start before this time, for example when a cheap electricity rate begins. If there isn't enough time between it and the ready-by time, the run starts at the earliest start, heats as far as it can, and is reported as late. Setting it turns the limit on. |
+| `switch` Limit daily start time | Turns the daily earliest start on or off. |
 | `number` Session length | How long to keep heating after the ready-by time before turning the heater off (default 2 h). 0 never turns it off. Changing it during a session moves that session's end. |
 | `button` End session | Turns the heater off now and ends the run in progress, overriding its scheduled end. A one-off schedule turns off; the daily schedule moves to its next day. With nothing running, it just turns the heater off. |
 | `datetime` One-off ready by | A single time the water should be hot by. Setting it turns the one-off schedule on. |
@@ -100,7 +102,7 @@ Everything chosen at setup can be changed later under **Settings → Devices & s
 ## Actions and events
 
 - `ready_by.set_ready_by`: `config_entry_id`, `ready_by`, optional `target`. Sets the one-off time (and one-off target) and turns the one-off schedule on.
-- `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled`, `target` and `off_at_ready_by`. Sets the daily time (which turns it on unless `enabled: false`) or the daily target, turns the daily schedule on or off, or sets `off_at_ready_by`.
+- `ready_by.set_daily`: `config_entry_id`, optional `time`, `enabled`, `target`, `off_at_ready_by` and `earliest_start`. Sets the daily time (which turns it on unless `enabled: false`) or the daily target, turns the daily schedule on or off, sets `off_at_ready_by`, or sets the earliest start (an empty value turns the limit off).
 - `ready_by.import_sessions`: `config_entry_id`, `sessions`, `cooling`. Adds past sessions; returns how many were new.
 - `ready_by.end_session`: `config_entry_id`. Same as the End session button.
 - `ready_by.export_sessions`: `config_entry_id`. Returns every learned session and cooling sample, in the format `import_sessions` takes, for backups.

@@ -281,6 +281,41 @@ class ReadyByController:
         self._store.async_schedule_save()
         await self.async_replan()
 
+    async def async_set_daily_earliest_start(
+        self, value: time | None = None, *, enabled: bool | None = None
+    ) -> None:
+        """Set the earliest time a daily run may start. Setting a time turns the limit on."""
+        if value is not None:
+            self.data.daily_earliest_start = value
+            if enabled is None:
+                enabled = True
+        if enabled is not None:
+            self.data.daily_earliest_enabled = enabled
+        self._store.async_schedule_save()
+        await self.async_replan()
+
+    def earliest_start(self, schedule: str | None, ready_by: datetime) -> datetime | None:
+        """The last occurrence of the daily earliest start before this ready-by time."""
+        data = self.data
+        if (
+            schedule != SCHEDULE_DAILY
+            or not data.daily_earliest_enabled
+            or data.daily_earliest_start is None
+        ):
+            return None
+        local = dt_util.as_local(ready_by)
+        day = local.date()
+        occurrence = dt_util.as_local(
+            datetime.combine(day, data.daily_earliest_start, tzinfo=local.tzinfo)
+        )
+        if occurrence >= local:
+            occurrence = dt_util.as_local(
+                datetime.combine(
+                    day - timedelta(days=1), data.daily_earliest_start, tzinfo=local.tzinfo
+                )
+            )
+        return dt_util.as_utc(occurrence)
+
     async def async_set_session_length(self, hours: float) -> None:
         """Set how long to keep heating after the ready-by time; 0 never turns it off."""
         self.data.session_hours = hours
@@ -612,7 +647,7 @@ class ReadyByController:
         upcoming = self.upcoming(dt_util.utcnow())
         return upcoming[0] if upcoming else None
 
-    def _make_plan(self, now: datetime, ready_by: datetime) -> Plan | None:
+    def _make_plan(self, now: datetime, schedule: str, ready_by: datetime) -> Plan | None:
         water = self.tracker.water
         outside_at = self.outside_at(now)
         if water is None or outside_at is None:
@@ -621,11 +656,12 @@ class ReadyByController:
             now,
             ready_by - self.buffer,
             water,
-            self.active_target,
+            self.target_for(schedule),
             outside_at,
             self.model,
             self.cooling_k,
             mode=self.tracker.mode,
+            earliest=self.earliest_start(schedule, ready_by),
         )
 
     async def async_replan(self) -> None:
@@ -676,7 +712,7 @@ class ReadyByController:
             return
 
         data.active, data.active_ready_by = upcoming[0]
-        self.plan = self._make_plan(now, data.active_ready_by)
+        self.plan = self._make_plan(now, data.active, data.active_ready_by)
         if self.plan is None:
             data.phase = PHASE_IDLE
             self._notify()
@@ -830,7 +866,7 @@ class ReadyByController:
         if turn_off:
             now = dt_util.utcnow()
             upcoming = self.upcoming(now)
-            follow_on = self._make_plan(now, upcoming[0][1]) if upcoming else None
+            follow_on = self._make_plan(now, *upcoming[0]) if upcoming else None
             # Don't switch off only to switch straight back on for the next run,
             # unless the session was ended by hand.
             if force or follow_on is None or follow_on.start > now + timedelta(minutes=5):

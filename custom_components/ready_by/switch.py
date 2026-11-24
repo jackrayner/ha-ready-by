@@ -24,6 +24,7 @@ async def async_setup_entry(
             EnabledSwitch(controller, "enabled"),
             DailyEnabledSwitch(controller, "daily_enabled"),
             DailyOffAtReadyBySwitch(controller, "daily_off_at_ready_by"),
+            DailyEarliestStartSwitch(controller, "daily_earliest_enabled"),
         ]
     )
 
@@ -66,3 +67,19 @@ class DailyOffAtReadyBySwitch(ReadyByEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.controller.async_set_daily_off_at_ready_by(False)
+
+
+class DailyEarliestStartSwitch(ReadyByEntity, SwitchEntity):
+    """Whether daily runs wait for the daily earliest start time."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+
+    @property
+    def is_on(self) -> bool:
+        return self.controller.data.daily_earliest_enabled
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.controller.async_set_daily_earliest_start(enabled=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.controller.async_set_daily_earliest_start(enabled=False)

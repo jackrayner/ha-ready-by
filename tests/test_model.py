@@ -215,6 +215,42 @@ def test_plan_late_starts_now():
     assert plan.expected_ready == T0 + timedelta(hours=8)
 
 
+def test_plan_earliest_start_too_late_starts_then_and_is_late():
+    model = HeatingModel(kind="seed", c0=1.0)
+    deadline = T0 + timedelta(hours=10)
+    earliest = T0 + timedelta(hours=5)
+    plan = plan_heating(T0, deadline, 30, 38, constant(5), model, cooling_k=0.0, earliest=earliest)
+    assert not plan.on_time
+    assert plan.start == earliest
+    assert plan.expected_ready == earliest + timedelta(hours=8)
+
+
+def test_plan_earliest_start_before_latest_start_changes_nothing():
+    model = HeatingModel(kind="seed", c0=2.0)
+    deadline = T0 + timedelta(hours=10)
+    free = plan_heating(T0, deadline, 30, 38, constant(5), model, cooling_k=0.0)
+    limited = plan_heating(
+        T0, deadline, 30, 38, constant(5), model, cooling_k=0.0, earliest=T0 + timedelta(hours=3)
+    )
+    assert limited.on_time
+    assert near(limited.start, free.start)
+
+
+def test_plan_earliest_start_in_the_past_is_ignored():
+    model = HeatingModel(kind="seed", c0=1.0)
+    plan = plan_heating(
+        T0,
+        T0 + timedelta(hours=2),
+        30,
+        38,
+        constant(5),
+        model,
+        cooling_k=0.0,
+        earliest=T0 - timedelta(hours=1),
+    )
+    assert plan.start == T0
+
+
 def test_plan_already_hot_starts_at_deadline():
     model = HeatingModel(kind="seed", c0=1.0)
     deadline = T0 + timedelta(hours=2)
