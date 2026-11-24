@@ -22,7 +22,7 @@ npx markdownlint-cli2 --config .markdownlint.jsonc "**/*.md" "!CHANGELOG.md" "!.
 
 ## Structure
 
-- `custom_components/ready_by/model.py` holds the maths: session detection, heating and cooling fits, forecast interpolation and the planner. It must stay free of Home Assistant imports, because `scripts/influx_backfill.py` loads it by file path outside Home Assistant.
+- `custom_components/ready_by/model.py` holds the maths: session detection, heating and cooling fits, forecast interpolation and the planner. It must stay free of Home Assistant imports, because `scripts/influx_backfill.py` and `scripts/evaluate_model.py` load it by file path outside Home Assistant.
 - `tracker.py` turns climate and sensor states (live or from the recorder) into detector events. `archive.py` records the inputs once a minute to monthly gzip files and replays them as detector events; relearning uses it first and `history.py` (the recorder) only for the time before it.
 - `store.py` keeps every learned session and cooling sample (up to 5,000 each), trimming the busiest 2 °C outside-temperature band first so all seasons stay represented. Main storage is a single JSON file rewritten on save, so anything that grows unbounded belongs in the archive, not there.
 - `planner.py` holds `ReadyByController`, the entry's `runtime_data`. It owns the settings, the learned data (persisted with `store.py`), the plan, the timers and the climate calls. Entities subscribe with `async_add_listener` and read from it.

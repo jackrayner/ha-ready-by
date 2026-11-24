@@ -18,7 +18,7 @@ It learns from every heating run how fast the heater warms the water at differen
 
 ## How it works
 
-- **Learning.** Each time the climate entity heats for at least 30 minutes and raises the water by at least 1 °C, the run is stored as a session. The heating rate is fitted as `rate = c0 + c1 × outside + c2 × water` (least squares, with outliers such as a lid left off thrown out). With fewer than 8 sessions it uses a simpler one-variable fit on `outside − water`, and with fewer than 3 it uses a starting rate you set. Idle periods of 2 hours or more give a Newton's-law cooling coefficient.
+- **Learning.** Each time the climate entity heats for at least 30 minutes and raises the water by at least 1 °C, the run is stored as a session. The heating rate is fitted as `rate = c0 + c1 × outside + c2 × water` (least squares, with outliers such as a lid left off thrown out). With fewer than 8 sessions it uses a simpler one-variable fit on `outside − water`, and with fewer than 3 it uses a starting rate you set. Air-source heat pumps slow down more than a straight line suggests in cold air, as they lose capacity and stop to defrost, so once there are 12 or more sessions with enough on both sides of a temperature it also tries a **cold-weather form**: an extra term that slows heating below a knee (−2 to 8 °C). It's only used if it predicts held-out sessions at least 10% better than the straight line; the Heating rate sensor's `kind` attribute says `cold` and `knee` gives the temperature when it is. Idle periods of 2 hours or more give a Newton's-law cooling coefficient.
 - **Heater modes.** Each session records the climate entity's preset mode (for example a heat pump's `boost` or `sleep`/silent mode). Once a mode has 3 or more sessions, it gets its own learned multiplier on the heating rate, and plans use the mode the heater is in now. Runs where the mode changed partway through still count towards the main fit but not towards any mode. Ready By only reads the mode; it never changes it.
 - **Planning.** It simulates the water in 5-minute steps: cooling from now until a candidate start time, then heating, using the outside sensor now and the hourly forecast after that. A binary search finds the latest start that still reaches the target by the ready-by time (minus an optional safety buffer). It plans again when the temperatures, forecast, target or ready-by time change.
 - **Control.** At the start time it sets the climate entity to `heat` at the target temperature. After the ready-by time it keeps heating for the session length you choose, then turns the climate entity off. An **End session** button turns it off early. If there isn't enough time, it starts immediately and marks the plan as late.
@@ -204,6 +204,7 @@ custom_components/ready_by/
 ├── brand/               # icon.png / icon@2x.png / logo.png
 └── translations/en.json # no strings.json (Core-only build file)
 scripts/
+├── evaluate_model.py    # compare model forms on exported sessions (stdlib only)
 └── influx_backfill.py   # InfluxDB 1.x history -> import_sessions payload (stdlib only)
 tests/
 ├── conftest.py          # fake climate/sensor states, mocked climate and forecast services
@@ -215,6 +216,7 @@ tests/
 ├── test_config_flow.py
 ├── test_services.py
 ├── test_history.py
+├── test_evaluate_model.py
 ├── test_influx_backfill.py
 └── test_manifest.py
 ```

@@ -8,6 +8,7 @@ Ground rules that apply to all of them:
 - Never trade away the fallbacks: with little data the model must still degrade to the simple fit, then the seed rate.
 - Validate model changes against the **input archive** (`archive.py`), not intuition. It holds once-a-minute inputs for a year or more, so changes can be replayed and compared on real history. A good harness is: replay the archive with `events_from_rows` and `detect`, hold out a time block (for example each month in turn), fit on the rest, and compare the predicted and actual time to heat each held-out session.
 - Keep the maintainer's own equipment and setup out of the repo; use generic examples.
+- `scripts/evaluate_model.py` prints the cross-validated error of each model form for an `export_sessions` response or a diagnostics download. Use it to check a model change on real sessions.
 
 ## 1. Track prediction accuracy
 
@@ -36,7 +37,13 @@ Ground rules that apply to all of them:
 
 Keep the ridge regularisation and the sign checks. Add a minimum number of sessions and a minimum outside-temperature spread before a non-linear form is even considered, and fall back to the current full or simple fit otherwise. `HeatingModel.kind` should say which form is in use. Mode factors (`mode_factors`) apply on top of whatever base form is chosen.
 
-**Done when:** a cross-validation helper (pure, in `model.py` or a sibling module) selects the form, tests use synthetic data with a known curve to show the curve is chosen when it should be and the linear fit when it shouldn't, and the change is evaluated on a real archive before release.
+**Done so far:** the piecewise form. `_fit_cold` tries knees from −2 to 8 °C (with at least 4 sessions on each side of a knee and 12 overall), scores each with `cross_validate` (time-ordered folds, error in hours to heat each held-out session), and keeps the best only if it beats the linear fit by 10%. It reports `kind: "cold"` with `c3` and `knee`. With only a few weeks of sessions it will usually keep the linear fit, which is expected: a knee can't be told apart from noise until there are enough sessions on both sides of it.
+
+**What's left:**
+
+- Rerun `scripts/evaluate_model.py` once there are several weeks of sub-zero sessions, and again after a full season, to check the knee is chosen when the data supports it.
+- The quadratic and lift-based forms haven't been tried. Add them as further candidates in `_fit_cold` only if they beat the piecewise form on real sessions.
+- Sessions are detected from a coarse water reading on many setups (whole degrees), which adds noise to every form. Item 5 (rates within runs from the archive) may do more for cold-weather accuracy than a different form.
 
 ## 3. Correct the forecast to the outside sensor
 
